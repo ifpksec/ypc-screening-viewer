@@ -1,7 +1,7 @@
 (() => {
 'use strict';
 // 캐시된 옛 index.html 과 새 app.js 가 섞인 경우(필수 요소 없음) 자동으로 새로 불러온다.
-if (['view-detail', 'view-stats', 'view-cards', 'view-judge', 'view-settings', 'orig', 'qr', 'impbar', 'back', 'navpos'].some(i => !document.getElementById(i))) {
+if (['view-detail', 'view-stats', 'view-cards', 'view-judge', 'view-settings', 'orig', 'qr', 'impbar', 'back', 'navpos', 'gateBack'].some(i => !document.getElementById(i))) {
   if (!/[?&]_r=/.test(location.search)) location.replace(location.pathname + '?_r=' + Date.now() + location.hash);
   else document.body.textContent = '페이지가 최신 상태가 아닙니다. Ctrl+F5 로 새로고침해 주세요.';
   return;
@@ -39,7 +39,7 @@ const CL = {
 const AGE_ORDER = ['20대', '30대', '40대', '50대', '60대 이상', '연령미상'];
 const PAGE = 12;
 const S = { code: null, role: null, judge: null, settings: null };
-let DATA = [], ITEM = {}, ASSIGN = [], ADMIN = null;
+let DATA = [], ITEM = {}, ASSIGN = [], ADMIN = null, PUB = null; // PUB: 접근코드 없이 받는 공개 집계(통계 탭 전용)
 let view = [], page = 1, navIds = [], curIdx = -1;
 
 // ---------- API ----------
@@ -94,6 +94,8 @@ async function unlock(code, opts = {}) {
   S.code = code;
   const who = await rpc('ypc_whoami', { code });
   S.role = who.role; S.judge = who.judge; S.settings = who.settings;
+  if (!PUB) { try { PUB = await rpc('ypc_public_stats', {}); } catch {} }
+  $('#logout').textContent = '잠그기';
   const [data, asg] = await Promise.all([call('ypc_list'), call('ypc_assignments')]);
   DATA = data; ASSIGN = asg;
   for (const d of DATA) {
@@ -116,9 +118,18 @@ $('#gateForm').addEventListener('submit', async e => {
   try { await unlock($('#code').value.trim()); } catch (err) { $('#gateMsg').textContent = err.message; }
   btn.disabled = false;
 });
-$('#logout').addEventListener('click', () => { store.del('ypc_code'); store.del('ypc_gh'); store.del('ypc_admin'); history.replaceState(null, '', location.pathname); location.reload(); });
+// 공개 모드: 통계·군집 탭만 접근코드 없이 열람. 나머지 탭은 잠금 표시 후 접근코드 입력 화면으로 이동.
+function openGate(msg) { $('#app').hidden = true; $('#gate').hidden = false; $('#gateMsg').textContent = msg || ''; $('#code').focus(); }
+$('#gateBack').addEventListener('click', () => { if (PUB && !S.code) { $('#gate').hidden = true; $('#app').hidden = false; $('#gateMsg').textContent = ''; } });
+async function enterPublic() {
+  try { PUB = await rpc('ypc_public_stats', {}); } catch { return; } // 실패하면 접근코드 입력 화면 유지
+  $('#gate').hidden = true; $('#app').hidden = false;
+  $('#total').textContent = '공개 통계 · ' + PUB.N + '건'; $('#logout').textContent = '접근코드 입력';
+  buildTabs(); route();
+}
+$('#logout').addEventListener('click', () => { if (!S.code) return openGate(); store.del('ypc_code'); store.del('ypc_gh'); store.del('ypc_admin'); history.replaceState(null, '', location.pathname); location.reload(); });
 (function autoLogin() {
-  const m = /[#&]c=([^&]+)/.exec(location.hash); if (!m) return;
+  const m = /[#&]c=([^&]+)/.exec(location.hash); if (!m) { enterPublic(); return; }
   const code = decodeURIComponent(m[1]); history.replaceState(null, '', location.pathname + location.search);
   unlock(code).catch(e => { $('#gateMsg').textContent = e.message; });
 })();
@@ -142,6 +153,11 @@ async function backToAdmin() {
 // ---------- 탭 ----------
 const TABS = { stats: '통계·군집', cards: '사례 목록', judge: '심사위원', settings: '설정' };
 function buildTabs() {
+  if (!S.code) {
+    $('#tabs').replaceChildren(el('button', { class: 'tab', role: 'tab', 'data-tab': 'stats', onclick: () => go('stats') }, TABS.stats),
+      ...['cards', 'judge', 'settings'].map(n => el('button', { class: 'tab', role: 'tab', title: '접근코드가 필요합니다', onclick: () => openGate('이 탭은 접근코드가 필요합니다.') }, TABS[n] + ' 🔒')));
+    return;
+  }
   const names = S.role === 'admin' ? ['stats', 'cards', 'judge', 'settings'] : ['judge'];
   $('#tabs').replaceChildren(...names.map(n => el('button', { class: 'tab', role: 'tab', 'data-tab': n, onclick: () => go(n) }, n === 'judge' && S.role === 'admin' ? '심사위원 현황' : TABS[n])));
 }
@@ -153,7 +169,11 @@ let lastTab = null, detailPushed = false; const scrollPos = {};
 const TABKEYS = () => S.role === 'admin' ? ['stats', 'cards', 'judge', 'settings'] : ['judge'];
 function go(tab) { scrollPos[tab] = 0; location.hash = '#/' + tab; if (location.hash === '#/' + tab) route(); }
 function route() {
-  if (!S.code) return;
+  if (!S.code) {
+    if (!PUB) return;
+    if (/^#\/(cards|judge|settings|case)/.test(location.hash)) { history.replaceState(null, '', location.pathname + location.search + '#/stats'); openGate('이 화면은 접근코드가 필요합니다.'); return; }
+    show('stats'); return;
+  }
   const m = /^#\/case\/([^/?#]+)/.exec(location.hash);
   if (m) { const id = decodeURIComponent(m[1]); if (ITEM[id]) return showDetail(id); }
   const t = /^#\/(stats|cards|judge|settings)/.exec(location.hash); const ok = t && TABKEYS().includes(t[1]);
@@ -175,46 +195,53 @@ async function show(tab) {
 // ---------- 통계 ----------
 function bars(entries, total, onclick) {
   const max = Math.max(1, ...entries.map(e => e[1]));
-  return entries.map(([label, n]) => el('button', { class: 'bar', title: '사례 목록에서 보기', onclick: () => onclick(label) },
+  return entries.map(([label, n]) => el(onclick ? 'button' : 'div', { class: 'bar', title: onclick ? '사례 목록에서 보기' : null, style: onclick ? null : 'cursor:default', onclick: onclick ? () => onclick(label) : null },
     el('span', { class: 'lb' }, label), el('span', { class: 'tr' }, el('span', { class: 'fl', style: 'width:' + (n / max * 100) + '%' })),
     el('span', { class: 'nv' }, n + ' (' + Math.round(n / total * 100) + '%)')));
 }
 function jump(key, label) { CF.reset(); $('#q').value = ''; CF.sel[key] = new Set([label]); page = 1; applyCards(); go('cards'); }
 const kpi = (b, s) => el('div', { class: 'kpi' }, el('b', {}, b), el('span', {}, s));
 const panel = (title, nodes, wide) => el('div', { class: 'panel' + (wide ? ' wide' : '') }, el('h3', {}, title), nodes);
-function groupCounts(g) {
-  const e = [...countOf(DATA.flatMap(g.get)).entries()];
-  if (g.order) e.sort((a, b) => g.order.indexOf(a[0]) - g.order.indexOf(b[0])); else e.sort((a, b) => b[1] - a[1]);
-  return e;
-}
+// 통계·군집 탭: 공개 집계(PUB)만 사용한다. 관리자는 항목 클릭으로 사례 목록 이동 + 평가 통계가 추가된다.
 function renderStats() {
-  const v = $('#view-stats'); v.replaceChildren();
-  const N = DATA.length, avg = Math.round(DATA.reduce((s, d) => s + d.chars, 0) / N);
+  const v = $('#view-stats'); v.replaceChildren(); if (!PUB) return;
+  const adm = S.role === 'admin', N = PUB.N, J = key => adm ? l => jump(key, l) : null;
+  const byAge = [...PUB.age].sort((a, b) => AGE_ORDER.indexOf(a[0]) - AGE_ORDER.indexOf(b[0]));
   v.append(el('div', { class: 'kpis' },
-    kpi(N, '전체 제출'), kpi(DATA.filter(d => d.type === 'B').length + ' / ' + DATA.filter(d => d.type === 'A').length, 'B안 / A안'),
-    kpi(DATA.filter(d => d.sep).length, '별도자료 첨부'), kpi(avg.toLocaleString(), '평균 본문 글자수'),
-    kpi(DATA.filter(d => d.tech.length).length, '기술(Python·웹앱 등) 언급'), kpi(DATA.filter(d => d.fmt !== 'docx').length, 'docx 외 형식')));
-  renderEvalStats(v);
-  const cl = groupCounts(CGROUPS[1]);
-  v.append(el('div', { class: 'panel wide', style: 'margin-bottom:16px' }, el('h3', {}, '주제 군집 (TF-IDF + KMeans, 클릭하면 해당 사례 목록)'),
-    el('div', { class: 'cl' }, cl.map(([name, n]) => el('button', { class: 'cl-item', onclick: () => jump('cluster', name) },
+    kpi(N, '전체 제출'), kpi(PUB.nB + ' / ' + PUB.nA, 'B안 / A안'), kpi(PUB.nSep, '별도자료 첨부'), kpi(Number(PUB.avgChars).toLocaleString(), '평균 본문 글자수'),
+    kpi(PUB.nTech, '기술(Python·웹앱 등) 언급'), kpi(PUB.nNonDocx, 'docx 외 형식')));
+  if (adm) renderEvalStats(v);
+  v.append(el('div', { class: 'panel wide', style: 'margin-bottom:16px' }, el('h3', {}, '주제 군집 (TF-IDF + KMeans' + (adm ? ', 클릭하면 해당 사례 목록)' : ')')),
+    el('div', { class: 'cl' }, PUB.cluster.map(([name, n]) => el(adm ? 'button' : 'div', { class: 'cl-item', style: adm ? null : 'cursor:default', onclick: adm ? () => jump('cluster', name) : null },
       el('span', { class: 'cl-n' }, n), el('b', {}, name), el('span', { class: 'muted' }, Math.round(n / N * 100) + '%'), el('div', { class: 'kw' }, CL[name] || '')))),
     el('p', { class: 'hint' }, '군집 간 어휘 중복이 커서 경계 사례가 많습니다(실루엣 약 0.08). 비중은 경향 파악용으로 보세요.')));
   const P = el('div', { class: 'panels' });
-  P.append(panel('연령대 (본문 첫 언급 기준)', bars(groupCounts(CGROUPS[2]), N, l => jump('age', l))));
-  P.append(panel('가구 유형', bars(groupCounts(CGROUPS[3]), N, l => jump('hh', l))));
-  P.append(panel('다룬 주제 (3회 이상 언급)', bars(groupCounts(CGROUPS[4]), N, l => jump('topic', l))));
-  P.append(panel('AI 도구 언급', bars(groupCounts(CGROUPS[5]), N, l => jump('ai', l))));
-  P.append(panel('기술·분석 기법', bars(groupCounts(CGROUPS[6]), N, l => jump('tech', l))));
-  const bins = new Map(); for (const d of DATA) { const b = Math.min(7, Math.floor(d.chars / 5000)); bins.set(b, (bins.get(b) || 0) + 1); }
-  const be = [...bins.entries()].sort((a, b) => a[0] - b[0]).map(([b, n]) => [b === 7 ? '35,000자 이상' : (b * 5000).toLocaleString() + '–' + ((b + 1) * 5000).toLocaleString() + '자', n]);
-  const mx = Math.max(...be.map(e => e[1]));
-  P.append(panel('본문 분량 분포', be.map(([l, n]) => el('div', { class: 'bar', style: 'cursor:default' }, el('span', { class: 'lb' }, l), el('span', { class: 'tr' }, el('span', { class: 'fl', style: 'width:' + n / mx * 100 + '%' })), el('span', { class: 'nv' }, n)))));
-  const names = cl.map(c => c[0]); const tbl = el('table', { class: 'tbl' });
+  P.append(panel('연령대 (본문 첫 언급 기준)', bars(byAge, N, J('age'))));
+  P.append(panel('가구 유형', bars(PUB.hh, N, J('hh'))));
+  P.append(panel('다룬 주제 (3회 이상 언급)', bars(PUB.topic, N, J('topic'))));
+  P.append(panel('AI 도구 언급', bars(PUB.ai, N, J('ai'))));
+  P.append(panel('기술·분석 기법', bars(PUB.tech, N, J('tech'))));
+  const be = PUB.bins.map(([b, n]) => [b >= 7 ? '35,000자 이상' : (b * 5000).toLocaleString() + '–' + ((b + 1) * 5000).toLocaleString() + '자', n]);
+  P.append(panel('본문 분량 분포', bars(be, N, null)));
+  const names = PUB.cluster.map(c => c[0]); const tbl = el('table', { class: 'tbl' });
+  const cell = (c, a) => (PUB.clusterAge.find(x => x[0] === c && x[1] === a) || [0, 0, 0])[2] || '·';
   tbl.append(el('tr', {}, el('th', {}, '군집'), AGE_ORDER.map(a => el('th', { class: 'n' }, a))));
-  for (const nm of names) tbl.append(el('tr', {}, el('td', {}, nm), AGE_ORDER.map(a => el('td', { class: 'n' }, DATA.filter(d => d.cluster_name === nm && (d.age_band || '연령미상') === a).length || '·'))));
+  for (const nm of names) tbl.append(el('tr', {}, el('td', {}, nm), AGE_ORDER.map(a => el('td', { class: 'n' }, cell(nm, a)))));
   P.append(el('div', { class: 'panel wide scroll' }, el('h3', {}, '군집 × 연령대'), tbl));
   v.append(P);
+  const X = PUB.sep;
+  if (X) {
+    const Z = X.zips, Q = el('div', { class: 'panels' });
+    Q.append(panel('코드를 읽어 본 추정 용도', bars(X.domain, Z, null)));
+    Q.append(panel('포함된 기능·특징 (중복 가능)', bars(X.flags, Z, null)));
+    Q.append(panel('실행 방식(파일 구성 기준)', bars(X.run, Z, null)));
+    Q.append(panel('파일 구성', bars(X.kind, Z, null)));
+    Q.append(panel('압축 안 파일 수', bars(X.size, Z, null)));
+    Q.append(panel('필요한 외부 패키지(Python import)', bars(X.pkgs, Z, null)));
+    Q.append(panel('군집별 별도자료 첨부 건수', bars(PUB.clusterSep, N, null)));
+    v.append(el('div', { class: 'sect' }, el('h3', {}, '별도자료(_별도.zip) 통계'),
+      el('p', { class: 'sub' }, X.note), el('div', { class: 'kpis' }, kpi(X.zips, '별도자료 첨부 사례'), kpi(X.files.toLocaleString(), '압축 안 전체 파일'), kpi(X.mb + 'MB', '압축 용량 합계'), kpi(pct(X.zips, N), '전체 대비 첨부율')), Q));
+  }
 }
 // 평가 점수 통계 (관리자)
 function renderEvalStats(v) {
