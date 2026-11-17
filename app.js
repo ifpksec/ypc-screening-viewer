@@ -204,9 +204,45 @@ function jump(key, label) { CF.reset(); $('#q').value = ''; CF.sel[key] = new Se
 const kpi = (b, s) => el('div', { class: 'kpi' }, el('b', {}, b), el('span', {}, s));
 const panel = (title, nodes, wide) => el('div', { class: 'panel' + (wide ? ' wide' : '') }, el('h3', {}, title), nodes);
 // 통계·군집 탭: 공개 집계(PUB)만 사용한다. 관리자는 항목 클릭으로 사례 목록 이동 + 평가 통계가 추가된다.
+const localDate = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+// 통계·군집 탭 마크다운 내려받기(공개 집계만 포함)
+function statsMarkdown() {
+  const P = PUB, N = P.N, X = P.sep, today = localDate(), NL = '\n';
+  const tbl = (head, rows) => '| ' + head.join(' | ') + ' |' + NL + '|' + head.map(() => '---').join('|') + '|' + NL + rows.map(r => '| ' + r.join(' | ') + ' |').join(NL) + NL;
+  const dist = (e, tot) => tbl(['항목', '건수', '비율'], e.map(([l, n]) => [l, n, Math.round(n / tot * 100) + '%']));
+  const byAge = [...P.age].sort((a, b) => AGE_ORDER.indexOf(a[0]) - AGE_ORDER.indexOf(b[0]));
+  const bins = P.bins.map(([b, n]) => [b >= 7 ? '35,000자 이상' : (b * 5000).toLocaleString() + '–' + ((b + 1) * 5000).toLocaleString() + '자', n]);
+  const cell = (c, a) => (P.clusterAge.find(x => x[0] === c && x[1] === a) || [0, 0, 0])[2] || 0;
+  const H = (t) => NL + t + NL + NL;
+  let m = '# YPC2026 1차 스크리닝 — 통계·군집' + NL + NL + '작성일 ' + today + ' · 전체 제출 ' + N + '건 (집계만 포함, 사례별 내용 없음)' + NL;
+  m += H('## 1. 개요') + tbl(['지표', '값'], [['전체 제출', N], ['B안 / A안', P.nB + ' / ' + P.nA], ['별도자료 첨부', P.nSep], ['평균 본문 글자수', Number(P.avgChars).toLocaleString()], ['기술(Python·웹앱 등) 언급', P.nTech], ['docx 외 형식', P.nNonDocx]]);
+  m += H('## 2. 주제 군집 (TF-IDF + KMeans)') + tbl(['군집', '건수', '비율', '대표 어휘'], P.cluster.map(([n, c]) => [n, c, Math.round(c / N * 100) + '%', CL[n] || '']));
+  m += NL + '> 군집 간 어휘 중복이 커서 경계 사례가 많습니다(실루엣 약 0.08). 비중은 경향 파악용입니다.' + NL;
+  m += H('## 3. 연령대 (본문 첫 언급 기준)') + dist(byAge, N);
+  m += H('## 4. 가구 유형') + dist(P.hh, N);
+  m += H('## 5. 다룬 주제 (3회 이상 언급)') + dist(P.topic, N);
+  m += H('## 6. AI 도구 언급') + dist(P.ai, N);
+  m += H('## 7. 기술·분석 기법') + dist(P.tech, N);
+  m += H('## 8. 본문 분량 분포') + dist(bins, N);
+  m += H('## 9. 군집 × 연령대') + tbl(['군집', ...AGE_ORDER], P.cluster.map(([n]) => [n, ...AGE_ORDER.map(a => cell(n, a))]));
+  if (X) {
+    m += H('## 10. 별도자료(_별도.zip) 통계') + '> ' + X.note + NL + NL + tbl(['지표', '값'], [['별도자료 첨부 사례', X.zips], ['압축 안 전체 파일', X.files.toLocaleString()], ['압축 용량 합계', X.mb + 'MB'], ['전체 대비 첨부율', pct(X.zips, N)]]);
+    m += H('### 10-1. 추정 용도') + dist(X.domain, X.zips) + H('### 10-2. 포함된 기능·특징 (중복 가능)') + dist(X.flags, X.zips)
+      + H('### 10-3. 실행 방식(파일 구성 기준)') + dist(X.run, X.zips) + H('### 10-4. 파일 구성') + dist(X.kind, X.zips)
+      + H('### 10-5. 압축 안 파일 수') + dist(X.size, X.zips) + H('### 10-6. 필요한 외부 패키지(Python import)') + dist(X.pkgs, X.zips)
+      + H('### 10-7. 군집별 별도자료 첨부 건수') + dist(P.clusterSep, N);
+  }
+  return m;
+}
+function downloadStatsMd() {
+  const blob = new Blob(['﻿' + statsMarkdown()], { type: 'text/markdown;charset=utf-8' });
+  const a = el('a', { href: URL.createObjectURL(blob), download: 'YPC2026_통계_군집_' + localDate() + '.md' });
+  document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
 function renderStats() {
   const v = $('#view-stats'); v.replaceChildren(); if (!PUB) return;
   const adm = S.role === 'admin', N = PUB.N, J = key => adm ? l => jump(key, l) : null;
+  v.append(el('div', { class: 'openrow', style: 'margin-bottom:12px' }, el('button', { class: 'btn small', onclick: downloadStatsMd }, '마크다운(.md) 다운로드')));
   const byAge = [...PUB.age].sort((a, b) => AGE_ORDER.indexOf(a[0]) - AGE_ORDER.indexOf(b[0]));
   v.append(el('div', { class: 'kpis' },
     kpi(N, '전체 제출'), kpi(PUB.nB + ' / ' + PUB.nA, 'B안 / A안'), kpi(PUB.nSep, '별도자료 첨부'), kpi(Number(PUB.avgChars).toLocaleString(), '평균 본문 글자수'),
@@ -407,17 +443,17 @@ function sepBox(d) {
   loadSepInfo().then(all => {
     const s = all[d.id]; if (!s) { box.replaceChildren(el('h3', {}, '별도자료 상세'), el('p', { class: 'muted' }, '이 사례의 별도자료 설명이 없습니다.')); return; }
     const kv = (k, v) => v ? [el('dt', {}, k), el('dd', {}, v)] : [];
-    box.replaceChildren(el('h3', {}, '별도자료 상세'),
+    box.replaceChildren(...[el('h3', {}, '별도자료 상세'),
       el('p', { class: 'about' }, s.about),
       el('dl', { class: 'kv' }, kv('압축 파일', s.nfiles + '개 · ' + (d.sep ? d.sep.mb + 'MB' : '') + (s.hidden ? ' (캐시·git 등 부수 파일 ' + s.hidden + '개 포함)' : '')),
-        kv('구성', s.kind), kv('실행 방식', s.run), kv('외부 패키지', s.pkgs.join(', ')),
+        kv('추정 용도 근거', s.basis), kv('구성', s.kind), kv('실행 방식', s.run), kv('외부 패키지', s.pkgs.join(', ')),
         kv('폴더 구성', s.dirs.map(([n, c]) => n + ' ' + c).join(' · ')), kv('확장자', s.ext.map(([n, c]) => n + ' ' + c).join(', '))),
       s.readme ? el('div', {}, el('div', { class: 'sep-h' }, '제출자 README 발췌'), el('p', { class: 'readme' }, s.readme + (s.readme.length >= 400 ? '…' : ''))) : null,
       s.cmds.length ? el('div', {}, el('div', { class: 'sep-h' }, 'README의 실행 안내'), s.cmds.map(c => el('div', { class: 'cmd' }, c))) : null,
       el('div', { class: 'sep-h' }, '주요 파일'),
       el('div', { class: 'scroll' }, el('table', { class: 'tbl' }, el('tr', {}, el('th', {}, '파일'), el('th', { class: 'n' }, '크기'), el('th', {}, '추정 역할')),
         s.key.map(([n, z, r]) => el('tr', {}, el('td', {}, n), el('td', { class: 'n' }, fmtSize(z)), el('td', {}, r))))),
-      el('p', { class: 'hint' }, '파일 이름·README·코드 식별자를 읽어 만든 정적 설명입니다. 코드는 실행하지 않았으므로 실제 동작과 다를 수 있습니다. 전체 파일은 "원본 보기"에서 확인하세요.'));
+      el('p', { class: 'hint' }, '파일 이름·README·코드 식별자를 읽어 만든 정적 설명입니다. 코드는 실행하지 않았으므로 실제 동작과 다를 수 있습니다. 전체 파일은 "원본 보기"에서 확인하세요.')].filter(Boolean));
   }).catch(e => box.replaceChildren(el('h3', {}, '별도자료 상세'), el('p', { class: 'muted' }, e.message === 'notoken' ? '원본 열람 토큰이 없어 별도자료 설명을 불러오지 못했습니다(설정 탭에서 공용 토큰을 등록하세요).' : '별도자료 설명을 불러오지 못했습니다(' + e.message + ').')));
   return box;
 }
