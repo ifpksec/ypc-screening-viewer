@@ -106,3 +106,8 @@ textarea{font:inherit;color:var(--tx);background:var(--card);border:1px solid va
 #view-detail .detail{padding:0 0 48px;max-width:1100px}
 .dgrid{display:grid;grid-template-columns:minmax(0,1fr);gap:8px 32px;align-items:start}
 @media (min-width:1000px){.dgrid{grid-template-columns:minmax(0,1fr) minmax(360px,440px)}.dgrid>.evalbox{position:sticky;top:70px;margin-top:0;border-top:0;padding-top:0}}
+
+.sepbox{margin-top:18px;border-top:1px solid var(--bd);padding-top:14px}.sepbox h3{margin:0 0 8px;font-size:15px}.sepbox .about{margin:0 0 10px;background:var(--prb);border-radius:8px;padding:8px 12px}
+.sep-h{font-weight:600;font-size:13.5px;margin:12px 0 4px}.sepbox .readme{margin:0;color:var(--mu);font-size:13.5px}
+.sepbox .cmd{background:var(--bg);border:1px solid var(--bd);border-radius:6px;padding:3px 8px;margin:3px 0;font:12.5px/1.5 ui-monospace,Consolas,monospace;overflow-x:auto;white-space:pre-wrap;word-break:break-all}
+.sepbox .tbl td{font-size:12.5px;word-break:break-all}

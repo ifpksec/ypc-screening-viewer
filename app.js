@@ -386,11 +386,40 @@ function showDetail(id) {
     el('div', { class: 'openrow' }, el('button', { class: 'btn primary', onclick: () => openOriginal(d) }, '원본 보기'),
       S.role === 'admin' ? el('a', { class: 'btn', href: CFG.LOCAL_VIEWER + d.id + '.html', target: '_blank', rel: 'noopener' }, '변환본(로컬)') : null,
       el('button', { class: 'btn', onclick: () => navigator.clipboard && navigator.clipboard.writeText(d.id) }, '번호 복사')),
+    d.sep ? sepBox(d) : null,
     el('p', { class: 'hint' }, '원본 보기: 비공개 레포(' + CFG.ORIG_REPO + ')에서 읽기 전용 토큰으로 직접 불러옵니다.'));
   dt.replaceChildren(el('div', { class: 'dgrid' }, info, S.role === 'judge' ? evalForm(d) : adminEvals(d)));
   $('#prev').disabled = curIdx <= 0; $('#next').disabled = curIdx < 0 || curIdx >= navIds.length - 1;
   $('#navpos').textContent = navIds.length > 1 ? (curIdx + 1) + ' / ' + navIds.length : '';
   window.scrollTo(0, 0);
+}
+// 별도자료 상세: 비공개 레포의 sep_info.json(파일 구성·README를 읽어 만든 정적 설명, 코드는 실행하지 않음)
+let SEPINFO = null, sepPromise = null;
+function loadSepInfo() {
+  if (SEPINFO) return Promise.resolve(SEPINFO);
+  if (!store.get('ypc_gh')) return Promise.reject(new Error('notoken'));
+  return sepPromise || (sepPromise = fetch(`https://api.github.com/repos/${CFG.ORIG_REPO}/contents/sep_info.json`, { headers: ghHeaders(true) })
+    .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }).then(j => (SEPINFO = j)).catch(e => { sepPromise = null; throw e; }));
+}
+const fmtSize = n => n >= 1048576 ? (n / 1048576).toFixed(1) + 'MB' : n >= 1024 ? Math.round(n / 1024) + 'KB' : n + 'B';
+function sepBox(d) {
+  const box = el('div', { class: 'sepbox' }, el('h3', {}, '별도자료 상세'), el('p', { class: 'muted' }, '별도자료 설명을 불러오는 중…'));
+  loadSepInfo().then(all => {
+    const s = all[d.id]; if (!s) { box.replaceChildren(el('h3', {}, '별도자료 상세'), el('p', { class: 'muted' }, '이 사례의 별도자료 설명이 없습니다.')); return; }
+    const kv = (k, v) => v ? [el('dt', {}, k), el('dd', {}, v)] : [];
+    box.replaceChildren(el('h3', {}, '별도자료 상세'),
+      el('p', { class: 'about' }, s.about),
+      el('dl', { class: 'kv' }, kv('압축 파일', s.nfiles + '개 · ' + (d.sep ? d.sep.mb + 'MB' : '') + (s.hidden ? ' (캐시·git 등 부수 파일 ' + s.hidden + '개 포함)' : '')),
+        kv('구성', s.kind), kv('실행 방식', s.run), kv('외부 패키지', s.pkgs.join(', ')),
+        kv('폴더 구성', s.dirs.map(([n, c]) => n + ' ' + c).join(' · ')), kv('확장자', s.ext.map(([n, c]) => n + ' ' + c).join(', '))),
+      s.readme ? el('div', {}, el('div', { class: 'sep-h' }, '제출자 README 발췌'), el('p', { class: 'readme' }, s.readme + (s.readme.length >= 400 ? '…' : ''))) : null,
+      s.cmds.length ? el('div', {}, el('div', { class: 'sep-h' }, 'README의 실행 안내'), s.cmds.map(c => el('div', { class: 'cmd' }, c))) : null,
+      el('div', { class: 'sep-h' }, '주요 파일'),
+      el('div', { class: 'scroll' }, el('table', { class: 'tbl' }, el('tr', {}, el('th', {}, '파일'), el('th', { class: 'n' }, '크기'), el('th', {}, '추정 역할')),
+        s.key.map(([n, z, r]) => el('tr', {}, el('td', {}, n), el('td', { class: 'n' }, fmtSize(z)), el('td', {}, r))))),
+      el('p', { class: 'hint' }, '파일 이름·README·코드 식별자를 읽어 만든 정적 설명입니다. 코드는 실행하지 않았으므로 실제 동작과 다를 수 있습니다. 전체 파일은 "원본 보기"에서 확인하세요.'));
+  }).catch(e => box.replaceChildren(el('h3', {}, '별도자료 상세'), el('p', { class: 'muted' }, e.message === 'notoken' ? '원본 열람 토큰이 없어 별도자료 설명을 불러오지 못했습니다(설정 탭에서 공용 토큰을 등록하세요).' : '별도자료 설명을 불러오지 못했습니다(' + e.message + ').')));
+  return box;
 }
 function adminEvals(d) {
   const rows = ASSIGN.filter(a => a.item_id === d.id); const crit = S.settings.criteria;
