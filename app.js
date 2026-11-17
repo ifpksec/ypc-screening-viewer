@@ -140,6 +140,7 @@ function renderImpBar() {
   bar.hidden = !imp; bar.replaceChildren(); if (!imp) return;
   bar.append(el('span', {}, '관리자 대리 접속 중: ', el('b', {}, S.judge.name), ' 심사위원 화면입니다. 여기서 저장하는 평가는 해당 심사위원 이름으로 기록됩니다.'),
     el('button', { class: 'btn small primary', onclick: backToAdmin }, '관리자로 돌아가기'));
+  document.documentElement.style.setProperty('--impH', bar.offsetHeight + 'px');
 }
 async function impersonate(j) {
   if (!j.code) return; store.set('ypc_admin', S.code);
@@ -159,7 +160,7 @@ function buildTabs() {
     return;
   }
   const names = S.role === 'admin' ? ['stats', 'cards', 'judge', 'settings'] : ['judge'];
-  $('#tabs').replaceChildren(...names.map(n => el('button', { class: 'tab', role: 'tab', 'data-tab': n, onclick: () => go(n) }, n === 'judge' && S.role === 'admin' ? '심사위원 현황' : TABS[n])));
+  $('#tabs').replaceChildren(...names.map(n => el('button', { class: 'tab', role: 'tab', 'data-tab': n, onclick: () => go(n) }, n === 'judge' && S.role === 'admin' ? '심사현황' : TABS[n])));
 }
 async function refreshAdmin() {
   if (S.role !== 'admin') return;
@@ -210,7 +211,6 @@ function renderStats() {
   v.append(el('div', { class: 'kpis' },
     kpi(N, '전체 제출'), kpi(PUB.nB + ' / ' + PUB.nA, 'B안 / A안'), kpi(PUB.nSep, '별도자료 첨부'), kpi(Number(PUB.avgChars).toLocaleString(), '평균 본문 글자수'),
     kpi(PUB.nTech, '기술(Python·웹앱 등) 언급'), kpi(PUB.nNonDocx, 'docx 외 형식')));
-  if (adm) renderEvalStats(v);
   v.append(el('div', { class: 'panel wide', style: 'margin-bottom:16px' }, el('h3', {}, '주제 군집 (TF-IDF + KMeans' + (adm ? ', 클릭하면 해당 사례 목록)' : ')')),
     el('div', { class: 'cl' }, PUB.cluster.map(([name, n]) => el(adm ? 'button' : 'div', { class: 'cl-item', style: adm ? null : 'cursor:default', onclick: adm ? () => jump('cluster', name) : null },
       el('span', { class: 'cl-n' }, n), el('b', {}, name), el('span', { class: 'muted' }, Math.round(n / N * 100) + '%'), el('div', { class: 'kw' }, CL[name] || '')))),
@@ -348,6 +348,7 @@ function renderJudge() {
     el('div', { class: 'prog' }, el('span', { style: 'width:' + (rows.length ? done / rows.length * 100 : 0) + '%' })),
     el('div', { class: 'openrow' }, el('button', { class: 'btn small', onclick: zipFromTab }, S.role === 'admin' ? '현재 목록 원본 zip 다운로드' : '내 담당 원본 전체 zip 다운로드')),
     el('div', { class: 'hint' }, '완료 기준: 모든 평가 항목 점수 입력(범위 내) + 의견 ' + S.settings.min_comment + '자 이상. 기준에 못 미치면 저장은 되지만 "평가 대기(작성중)"으로 남습니다.')));
+  if (S.role === 'admin') renderEvalStats(head); // 평가 점수 통계는 심사현황 탭에 표시
   if (!rows.length) { $('#jfilters').replaceChildren(); $('#jactive').replaceChildren(); $('#jcount').textContent = ''; $('#jpager').replaceChildren();
     $('#jgrid').replaceChildren(el('p', { class: 'muted' }, S.role === 'admin' ? '배정된 평가가 없습니다. 설정 탭에서 심사위원을 추가하고 랜덤 할당을 실행하세요.' : '배정된 평가가 없습니다. 관리자에게 문의하세요.')); return; }
   const list = rows.filter(r => JF.match(r)).sort((a, b) => (a.status === 'done') - (b.status === 'done') || a.id.localeCompare(b.id) || a.judge.localeCompare(b.judge));
