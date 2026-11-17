@@ -319,8 +319,8 @@ function renderEvalStats(v) {
 
 // ---------- 사례 목록 ----------
 // 도식·표 비중: 본문 docx에서 표 안 글자 + 텍스트상자·도형 글자 + 그림 면적(쪽 면적=1,800자로 환산)이 전체에서 차지하는 비율(%)
-const VIS_ORDER = ['80% 이상', '80% 미만', '측정 불가(docx 외)'];
-const visBands = d => d.vis_pct == null ? ['측정 불가(docx 외)'] : [d.vis_pct >= 80 ? '80% 이상' : '80% 미만'];
+const VIS_ORDER = ['40% 이상', '80% 이상'];
+const visBands = d => d.vis_pct == null ? [] : [...(d.vis_pct >= 40 ? ['40% 이상'] : []), ...(d.vis_pct >= 80 ? ['80% 이상'] : [])];
 const CGROUPS = [
   { key: 'type', label: '유형', get: d => [d.type ? d.type + '안' : '미상'] },
   { key: 'cluster', label: '군집', get: d => [d.cluster_name] },
