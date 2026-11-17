@@ -58,17 +58,19 @@
       <div id="jpager" class="pager"></div>
     </section>
     <section id="view-settings" class="view" hidden></section>
+    <section id="view-detail" class="view" hidden>
+      <div class="detailbar">
+        <button id="back" class="btn small">← 목록으로</button>
+        <span class="grow"></span>
+        <span id="navpos" class="muted"></span>
+        <button id="prev" class="btn small">← 이전</button>
+        <button id="next" class="btn small">다음 →</button>
+      </div>
+      <div id="detail" class="detail"></div>
+    </section>
   </main>
 </div>
-<aside id="drawer" class="drawer" hidden role="dialog" aria-modal="true">
-  <div class="drawer-bar">
-    <button id="prev" class="btn ghost small">← 이전</button>
-    <button id="next" class="btn ghost small">다음 →</button>
-    <span class="grow"></span>
-    <button id="close" class="btn ghost small">닫기 ✕</button>
-  </div>
-  <div id="detail" class="detail"></div>
-</aside>
+
 <section id="orig" class="orig" hidden role="dialog" aria-modal="true">
   <div class="orig-bar">
     <b id="origTitle"></b>

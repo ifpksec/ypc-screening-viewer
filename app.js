@@ -13,11 +13,8 @@ const el = (tag, attrs = {}, ...kids) => {
   for (const c of kids.flat()) if (c != null && c !== false) n.append(c.nodeType ? c : document.createTextNode(String(c)));
   return n;
 };
-const store = {
-  get(k) { try { return sessionStorage.getItem(k); } catch { return null; } },
-  set(k, v) { try { sessionStorage.setItem(k, v); } catch {} },
-  del(k) { try { sessionStorage.removeItem(k); } catch {} }
-};
+const mem = new Map(); // 접근코드·토큰은 메모리에만 보관(새로고침·탭 닫기 시 사라짐)
+const store = { get: k => mem.has(k) ? mem.get(k) : null, set: (k, v) => { mem.set(k, v); }, del: k => { mem.delete(k); } };
 const sum = a => a.reduce((s, x) => s + Number(x), 0);
 const mean = a => a.length ? sum(a) / a.length : null;
 const sd = a => { if (a.length < 2) return null; const m = mean(a); return Math.sqrt(sum(a.map(x => (x - m) ** 2)) / (a.length - 1)); };
@@ -102,11 +99,11 @@ async function unlock(code, opts = {}) {
   try { const tk = await call('ypc_orig_token'); if (tk) store.set('ypc_gh', tk); } catch {} // 관리자가 등록한 공용 읽기 토큰 자동 적용
   if (!opts.keepImp || S.role !== 'judge') store.del('ypc_admin');
   store.set('ypc_code', code);
-  $('#drawer').hidden = true; $('#qr').hidden = true; if (!$('#orig').hidden) origClose();
+  $('#qr').hidden = true; if (!$('#orig').hidden) origClose();
   $('#gate').hidden = true; $('#app').hidden = false;
   $('#total').textContent = S.role === 'admin' ? '관리자 · ' + DATA.length + '건' : '심사위원 ' + S.judge.name;
   buildTabs(); initCards(); initJudge(); renderImpBar();
-  show(S.role === 'admin' ? 'stats' : 'judge');
+  route();
 }
 $('#gateForm').addEventListener('submit', async e => {
   e.preventDefault(); const btn = $('#gateForm button'); btn.disabled = true; $('#gateMsg').textContent = '';
@@ -115,10 +112,9 @@ $('#gateForm').addEventListener('submit', async e => {
 });
 $('#logout').addEventListener('click', () => { store.del('ypc_code'); store.del('ypc_gh'); store.del('ypc_admin'); history.replaceState(null, '', location.pathname); location.reload(); });
 (function autoLogin() {
-  const m = /[#&]c=([^&]+)/.exec(location.hash);
-  const code = m ? decodeURIComponent(m[1]) : store.get('ypc_code');
-  if (m) history.replaceState(null, '', location.pathname + location.search);
-  if (code) unlock(code, { keepImp: !m }).catch(e => { store.del('ypc_code'); $('#gateMsg').textContent = e.message; });
+  const m = /[#&]c=([^&]+)/.exec(location.hash); if (!m) return;
+  const code = decodeURIComponent(m[1]); history.replaceState(null, '', location.pathname + location.search);
+  unlock(code).catch(e => { $('#gateMsg').textContent = e.message; });
 })();
 
 // ---------- 관리자 대리 접속(심사위원으로 보기) ----------
@@ -141,18 +137,33 @@ async function backToAdmin() {
 const TABS = { stats: '통계·군집', cards: '사례 목록', judge: '심사위원', settings: '설정' };
 function buildTabs() {
   const names = S.role === 'admin' ? ['stats', 'cards', 'judge', 'settings'] : ['judge'];
-  $('#tabs').replaceChildren(...names.map(n => el('button', { class: 'tab', role: 'tab', 'data-tab': n, onclick: () => show(n) }, n === 'judge' && S.role === 'admin' ? '심사위원 현황' : TABS[n])));
+  $('#tabs').replaceChildren(...names.map(n => el('button', { class: 'tab', role: 'tab', 'data-tab': n, onclick: () => go(n) }, n === 'judge' && S.role === 'admin' ? '심사위원 현황' : TABS[n])));
 }
 async function refreshAdmin() {
   if (S.role !== 'admin') return;
   try { [ASSIGN, ADMIN] = await Promise.all([call('ypc_assignments'), call('ypc_admin_state')]); S.settings = ADMIN.settings; } catch {}
 }
+let lastTab = null, detailPushed = false; const scrollPos = {};
+const TABKEYS = () => S.role === 'admin' ? ['stats', 'cards', 'judge', 'settings'] : ['judge'];
+function go(tab) { scrollPos[tab] = 0; location.hash = '#/' + tab; if (location.hash === '#/' + tab) route(); }
+function route() {
+  if (!S.code) return;
+  const m = /^#\/case\/([^/?#]+)/.exec(location.hash);
+  if (m) { const id = decodeURIComponent(m[1]); if (ITEM[id]) return showDetail(id); }
+  const t = /^#\/(stats|cards|judge|settings)/.exec(location.hash); const ok = t && TABKEYS().includes(t[1]);
+  const tab = ok ? t[1] : TABKEYS()[0];
+  if (!ok) history.replaceState(null, '', location.pathname + location.search + '#/' + tab);
+  show(tab);
+}
+window.addEventListener('hashchange', route);
 async function show(tab) {
+  lastTab = tab;
   for (const b of document.querySelectorAll('.tab')) b.setAttribute('aria-selected', String(b.dataset.tab === tab));
   for (const k of Object.keys(TABS)) $('#view-' + k).hidden = k !== tab;
-  window.scrollTo(0, 0);
+  $('#view-detail').hidden = true;
   if (tab !== 'cards' && S.role === 'admin') await refreshAdmin();
   if (tab === 'stats') renderStats(); if (tab === 'judge') renderJudge(); if (tab === 'settings') renderSettings();
+  window.scrollTo(0, scrollPos[tab] || 0);
 }
 
 // ---------- 통계 ----------
@@ -162,7 +173,7 @@ function bars(entries, total, onclick) {
     el('span', { class: 'lb' }, label), el('span', { class: 'tr' }, el('span', { class: 'fl', style: 'width:' + (n / max * 100) + '%' })),
     el('span', { class: 'nv' }, n + ' (' + Math.round(n / total * 100) + '%)')));
 }
-function jump(key, label) { CF.reset(); $('#q').value = ''; CF.sel[key] = new Set([label]); page = 1; applyCards(); show('cards'); }
+function jump(key, label) { CF.reset(); $('#q').value = ''; CF.sel[key] = new Set([label]); page = 1; applyCards(); go('cards'); }
 const kpi = (b, s) => el('div', { class: 'kpi' }, el('b', {}, b), el('span', {}, s));
 const panel = (title, nodes, wide) => el('div', { class: 'panel' + (wide ? ' wide' : '') }, el('h3', {}, title), nodes);
 function groupCounts(g) {
@@ -317,13 +328,22 @@ function renderJudge() {
 $('#jq').addEventListener('input', e => { JF.q = e.target.value.trim(); jpage = 1; renderJudge(); });
 $('#jreset').addEventListener('click', () => { JF.reset(); $('#jq').value = ''; jpage = 1; renderJudge(); });
 
-// ---------- 상세 드로어 + 평가 ----------
+// ---------- 상세 페이지 + 평가 ----------
 function openDetail(id, ids) {
-  navIds = ids && ids.length ? ids : view.map(d => d.id); curIdx = navIds.indexOf(id);
+  navIds = ids && ids.length ? ids : view.map(d => d.id);
+  if (lastTab) scrollPos[lastTab] = window.scrollY;
+  detailPushed = true; location.hash = '#/case/' + encodeURIComponent(id);
+}
+function navStep(delta) { const nid = navIds[curIdx + delta]; if (!nid) return; history.replaceState(null, '', location.pathname + location.search + '#/case/' + encodeURIComponent(nid)); showDetail(nid); }
+function showDetail(id) {
+  if (!navIds.includes(id)) navIds = [id]; curIdx = navIds.indexOf(id);
   const d = ITEM[id]; if (!d) return;
+  for (const k of Object.keys(TABS)) $('#view-' + k).hidden = true; $('#view-detail').hidden = false;
+  if (!lastTab) lastTab = TABKEYS()[0];
+  for (const b of document.querySelectorAll('.tab')) b.setAttribute('aria-selected', String(b.dataset.tab === lastTab));
   const sepTxt = d.sep ? d.sep.files + '개 파일 · ' + d.sep.mb + 'MB (' + Object.entries(d.sep.ext).map(([e, n]) => e + ' ' + n).join(', ') + ')' : '없음';
   const kv = (k, v) => [el('dt', {}, k), el('dd', {}, v)];
-  const dt = $('#detail'); dt.replaceChildren(
+  const dt = $('#detail'); const info = el('div', {},
     el('div', { class: 'id muted' }, d.id + ' · ' + (d.type || '?') + '안 · ' + d.fmt),
     el('h2', {}, d.title), d.headline ? el('div', { class: 'hl', style: 'color:var(--pr)' }, d.headline) : null,
     el('div', { class: 'sum' }, d.summary || '(요약 없음)'),
@@ -332,10 +352,11 @@ function openDetail(id, ids) {
     el('div', { class: 'openrow' }, el('button', { class: 'btn primary', onclick: () => openOriginal(d) }, '원본 보기'),
       S.role === 'admin' ? el('a', { class: 'btn', href: CFG.LOCAL_VIEWER + d.id + '.html', target: '_blank', rel: 'noopener' }, '변환본(로컬)') : null,
       el('button', { class: 'btn', onclick: () => navigator.clipboard && navigator.clipboard.writeText(d.id) }, '번호 복사')),
-    el('p', { class: 'hint' }, '원본 보기: 비공개 레포(' + CFG.ORIG_REPO + ')에서 읽기 전용 토큰으로 직접 불러옵니다.'),
-    S.role === 'judge' ? evalForm(d) : adminEvals(d));
+    el('p', { class: 'hint' }, '원본 보기: 비공개 레포(' + CFG.ORIG_REPO + ')에서 읽기 전용 토큰으로 직접 불러옵니다.'));
+  dt.replaceChildren(el('div', { class: 'dgrid' }, info, S.role === 'judge' ? evalForm(d) : adminEvals(d)));
   $('#prev').disabled = curIdx <= 0; $('#next').disabled = curIdx < 0 || curIdx >= navIds.length - 1;
-  $('#drawer').hidden = false; $('#drawer').scrollTop = 0;
+  $('#navpos').textContent = navIds.length > 1 ? (curIdx + 1) + ' / ' + navIds.length : '';
+  window.scrollTo(0, 0);
 }
 function adminEvals(d) {
   const rows = ASSIGN.filter(a => a.item_id === d.id); const crit = S.settings.criteria;
@@ -374,15 +395,15 @@ function evalForm(d) {
     save.disabled = false;
   } }, '저장');
   box.append(el('div', { class: 'totrow' }, el('span', {}, '합계'), total), ta, cnt, msg, el('div', { class: 'openrow' }, save,
-    el('button', { class: 'btn', onclick: () => { if (curIdx < navIds.length - 1) openDetail(navIds[curIdx + 1], navIds); } }, '다음 사례 →')));
+    el('button', { class: 'btn', onclick: () => navStep(1) }, '다음 사례 →')));
   setSt(); calc(); cc(); return box;
 }
-$('#prev').addEventListener('click', () => curIdx > 0 && openDetail(navIds[curIdx - 1], navIds));
-$('#next').addEventListener('click', () => curIdx < navIds.length - 1 && openDetail(navIds[curIdx + 1], navIds));
-$('#close').addEventListener('click', () => { $('#drawer').hidden = true; });
+$('#prev').addEventListener('click', () => navStep(-1));
+$('#next').addEventListener('click', () => navStep(1));
+$('#back').addEventListener('click', () => { if (detailPushed) { detailPushed = false; history.back(); } else go(lastTab || TABKEYS()[0]); });
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') { if (!$('#qr').hidden) $('#qr').hidden = true; else if (!$('#orig').hidden) origClose(); else $('#drawer').hidden = true; return; }
-  if ($('#drawer').hidden || !$('#orig').hidden || /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
+  if (e.key === 'Escape') { if (!$('#qr').hidden) $('#qr').hidden = true; else if (!$('#orig').hidden) origClose(); else if (!$('#view-detail').hidden) $('#back').click(); return; }
+  if ($('#view-detail').hidden || !$('#orig').hidden || /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
   if (e.key === 'ArrowLeft') $('#prev').click(); if (e.key === 'ArrowRight') $('#next').click();
 });
 
@@ -545,7 +566,7 @@ function tokenForm(d, after) {
     el('b', {}, '비공개 레포 읽기 토큰이 필요합니다'),
     el('ol', {}, el('li', {}, 'GitHub → Settings → Developer settings → Fine-grained tokens'), el('li', {}, 'Repository access: ' + CFG.ORIG_REPO + ' 만 선택'), el('li', {}, 'Permissions: Contents → Read-only 로 생성')),
     inp, el('button', { class: 'btn primary', type: 'submit' }, '저장하고 열기'), el('p', { class: 'err' }),
-    el('p', { class: 'hint' }, '토큰은 이 브라우저 탭(sessionStorage)에만 저장되며 서버로 전송되지 않습니다. 탭을 닫으면 사라집니다.')));
+    el('p', { class: 'hint' }, '토큰은 이 브라우저 화면의 메모리에만 보관되며 서버로 전송되지 않습니다. 새로고침하거나 탭을 닫으면 사라집니다.')));
 }
 async function openOriginal(d) {
   $('#origTitle').textContent = d.id + ' 원본'; $('#origTitle').dataset.id = d.id; $('#origFiles').replaceChildren(); $('#orig').hidden = false;
