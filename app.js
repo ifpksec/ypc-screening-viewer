@@ -1,7 +1,7 @@
 (() => {
 'use strict';
 // 캐시된 옛 index.html 과 새 app.js 가 섞인 경우(필수 요소 없음) 자동으로 새로 불러온다.
-if (['view-detail', 'view-stats', 'view-cards', 'view-judge', 'view-settings', 'orig', 'qr', 'impbar', 'back', 'navpos', 'gateBack'].some(i => !document.getElementById(i))) {
+if (['view-detail', 'view-stats', 'view-cards', 'view-judge', 'view-settings', 'orig', 'qr', 'impbar', 'back', 'navpos', 'gateBack', 'view-missing'].some(i => !document.getElementById(i))) {
   if (!/[?&]_r=/.test(location.search)) location.replace(location.pathname + '?_r=' + Date.now() + location.hash);
   else document.body.textContent = '페이지가 최신 상태가 아닙니다. Ctrl+F5 로 새로고침해 주세요.';
   return;
@@ -152,14 +152,14 @@ async function backToAdmin() {
 }
 
 // ---------- 탭 ----------
-const TABS = { stats: '통계·군집', cards: '사례 목록', judge: '심사위원', settings: '설정' };
+const TABS = { stats: '통계·군집', cards: '사례 목록', missing: '누락 사례', judge: '심사위원', settings: '설정' };
 function buildTabs() {
   if (!S.code) {
     $('#tabs').replaceChildren(el('button', { class: 'tab', role: 'tab', 'data-tab': 'stats', onclick: () => go('stats') }, TABS.stats),
-      ...['cards', 'judge', 'settings'].map(n => el('button', { class: 'tab', role: 'tab', title: '접근코드가 필요합니다', onclick: () => openGate('이 탭은 접근코드가 필요합니다.') }, TABS[n] + ' 🔒')));
+      ...['cards', 'missing', 'judge', 'settings'].map(n => el('button', { class: 'tab', role: 'tab', title: '접근코드가 필요합니다', onclick: () => openGate('이 탭은 접근코드가 필요합니다.') }, TABS[n] + ' 🔒')));
     return;
   }
-  const names = S.role === 'admin' ? ['stats', 'cards', 'judge', 'settings'] : ['judge'];
+  const names = S.role === 'admin' ? ['stats', 'cards', 'missing', 'judge', 'settings'] : ['judge'];
   $('#tabs').replaceChildren(...names.map(n => el('button', { class: 'tab', role: 'tab', 'data-tab': n, onclick: () => go(n) }, n === 'judge' && S.role === 'admin' ? '심사현황' : TABS[n])));
 }
 async function refreshAdmin() {
@@ -167,17 +167,17 @@ async function refreshAdmin() {
   try { [ASSIGN, ADMIN] = await Promise.all([call('ypc_assignments'), call('ypc_admin_state')]); S.settings = ADMIN.settings; } catch {}
 }
 let lastTab = null, detailPushed = false; const scrollPos = {};
-const TABKEYS = () => S.role === 'admin' ? ['stats', 'cards', 'judge', 'settings'] : ['judge'];
+const TABKEYS = () => S.role === 'admin' ? ['stats', 'cards', 'missing', 'judge', 'settings'] : ['judge'];
 function go(tab) { scrollPos[tab] = 0; location.hash = '#/' + tab; if (location.hash === '#/' + tab) route(); }
 function route() {
   if (!S.code) {
     if (!PUB) return;
-    if (/^#\/(cards|judge|settings|case)/.test(location.hash)) { history.replaceState(null, '', location.pathname + location.search + '#/stats'); openGate('이 화면은 접근코드가 필요합니다.'); return; }
+    if (/^#\/(cards|missing|judge|settings|case)/.test(location.hash)) { history.replaceState(null, '', location.pathname + location.search + '#/stats'); openGate('이 화면은 접근코드가 필요합니다.'); return; }
     show('stats'); return;
   }
   const m = /^#\/case\/([^/?#]+)/.exec(location.hash);
   if (m) { const id = decodeURIComponent(m[1]); if (ITEM[id]) return showDetail(id); }
-  const t = /^#\/(stats|cards|judge|settings)/.exec(location.hash); const ok = t && TABKEYS().includes(t[1]);
+  const t = /^#\/(stats|cards|missing|judge|settings)/.exec(location.hash); const ok = t && TABKEYS().includes(t[1]);
   const tab = ok ? t[1] : TABKEYS()[0];
   if (!ok) history.replaceState(null, '', location.pathname + location.search + '#/' + tab);
   show(tab);
@@ -189,7 +189,7 @@ async function show(tab) {
   for (const k of Object.keys(TABS)) $('#view-' + k).hidden = k !== tab;
   $('#view-detail').hidden = true;
   if (tab !== 'cards' && S.role === 'admin') await refreshAdmin();
-  if (tab === 'stats') renderStats(); if (tab === 'judge') renderJudge(); if (tab === 'settings') renderSettings();
+  if (tab === 'stats') renderStats(); if (tab === 'judge') renderJudge(); if (tab === 'settings') renderSettings(); if (tab === 'missing') renderMissing();
   window.scrollTo(0, scrollPos[tab] || 0);
 }
 
@@ -364,6 +364,39 @@ function renderGrid() {
 $('#q').addEventListener('input', e => { CF.q = e.target.value.trim(); page = 1; applyCards(); });
 $('#sort').addEventListener('change', e => { cardSort = e.target.value; page = 1; applyCards(); });
 $('#reset').addEventListener('click', () => { CF.reset(); $('#q').value = ''; page = 1; applyCards(); });
+
+// ---------- 누락 사례 탭 ----------
+// 결번(제출 번호 중 빠진 번호)과 사례 데이터의 결측을 한곳에서 확인한다.
+function renderMissing() {
+  const v = $('#view-missing'); v.replaceChildren();
+  const nums = DATA.map(d => parseInt((/(\d+)$/.exec(d.id) || [])[1], 10)).filter(n => !isNaN(n));
+  const have = new Set(nums), lo = Math.min(...nums), hi = Math.max(...nums), prefix = DATA[0].id.replace(/\d+$/, '');
+  const gaps = []; for (let n = lo; n <= hi; n++) if (!have.has(n)) gaps.push(n);
+  const assigned = new Set(ASSIGN.map(a => a.item_id));
+  const G = [
+    ['본문 변환 이상(단순 텍스트 복구본)', '서식·표가 없는 복구본입니다. 원본 보기로 확인하세요.', DATA.filter(d => d.note), d => d.note],
+    ['연령 미상', '본문에서 고객 연령을 찾지 못했습니다.', DATA.filter(d => !d.age_band), () => '연령 미상'],
+    ['가구 유형 미분류', '가구 유형 키워드가 없습니다.', DATA.filter(d => !(d.household || []).length), () => '가구 미분류'],
+    ['주제 미분류', '다룬 주제로 분류된 항목이 없습니다.', DATA.filter(d => !(d.topics || []).length), () => '주제 없음'],
+    ['요약 없음', '카드에 표시할 요약문이 없습니다.', DATA.filter(d => !(d.summary || '').trim()), () => '요약 없음'],
+    ['도식·표 비중 측정 불가', 'docx가 아니거나 구조를 읽지 못해 비중을 계산하지 못했습니다.', DATA.filter(d => d.vis_pct == null), d => d.fmt || '형식 미상'],
+    ['심사위원 미배정', '어느 심사위원에게도 배정되지 않았습니다.', DATA.filter(d => !assigned.has(d.id)), () => '미배정']
+  ];
+  v.append(el('div', { class: 'kpis' }, kpi(DATA.length, '현재 등록 사례'), kpi(gaps.length, '결번(' + lo + '~' + hi + ' 중)'), ...G.map(([t, , rows]) => kpi(rows.length, t.replace(/\(.*\)/, '')))));
+  const gp = el('div', { class: 'panel wide', style: 'margin-bottom:16px' }, el('h3', {}, '결번 — 제출 번호 중 빠진 번호 (' + gaps.length + '건)'),
+    gaps.length ? el('div', { class: 'tags' }, gaps.map(n => el('span', { class: 'tag' }, prefix + String(n).padStart(3, '0')))) : el('p', { class: 'muted' }, '결번이 없습니다.'),
+    el('p', { class: 'hint' }, '현재 등록된 번호의 최소~최대 범위에서 빠진 번호입니다. 접수 단계에서 제외되었거나 이번 검토 대상에서 빠진 것으로 보이며, 사유는 이 화면에서 알 수 없습니다. 마지막 번호 뒤의 누락은 감지하지 못합니다.'));
+  v.append(gp);
+  const P = el('div', { class: 'panels' });
+  for (const [title, desc, rows, why] of G) {
+    const ids = rows.map(d => d.id);
+    P.append(el('div', { class: 'panel' + (rows.length > 8 ? ' wide' : ''), style: 'grid-column:1/-1' }, el('h3', {}, title + ' (' + rows.length + '건)'), el('p', { class: 'hint', style: 'margin:0 0 8px' }, desc),
+      rows.length ? el('div', { class: 'scroll' }, el('table', { class: 'tbl' }, el('tr', {}, el('th', {}, '사례'), el('th', {}, '유형·형식'), el('th', {}, '사유')),
+        rows.slice(0, 60).map(d => el('tr', { style: 'cursor:pointer', onclick: () => openDetail(d.id, ids) }, el('td', {}, d.id + ' · ' + d.title), el('td', {}, (d.type || '?') + '안 · ' + d.fmt), el('td', {}, why(d))))),
+        rows.length > 60 ? el('p', { class: 'muted' }, '앞의 60건만 표시합니다. 나머지는 사례 목록 필터를 이용하세요.') : null) : el('p', { class: 'muted' }, '해당 사례가 없습니다.')));
+  }
+  v.append(P);
+}
 
 // ---------- 심사위원 탭 ----------
 const stText = r => r.status === 'done' ? '평가 완료' : '평가 대기';
