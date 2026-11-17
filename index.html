@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>YPC 1차 스크리닝 뷰어</title>
+<link rel="icon" href="favicon.svg">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="gate" class="gate">
+  <form id="gateForm" class="gate-box">
+    <h1>YPC 1차 스크리닝 뷰어</h1>
+    <p class="muted">심사 중 자료입니다. 접근코드를 입력하세요.</p>
+    <input id="code" type="password" autocomplete="off" placeholder="접근코드" required>
+    <button class="btn primary" type="submit">열기</button>
+    <p id="gateMsg" class="err" role="alert"></p>
+  </form>
+</div>
+<div id="app" hidden>
+  <header class="top">
+    <div class="brand"><span class="logo"></span><b>YPC 1차 스크리닝</b><span id="total" class="muted"></span></div>
+    <nav class="tabs" role="tablist">
+      <button class="tab" data-tab="stats" role="tab">통계·군집</button>
+      <button class="tab" data-tab="cards" role="tab">사례 목록</button>
+    </nav>
+    <button id="logout" class="btn ghost small">잠그기</button>
+  </header>
+  <main>
+    <section id="view-stats" class="view"></section>
+    <section id="view-cards" class="view" hidden>
+      <div class="toolbar">
+        <input id="q" type="search" placeholder="번호·제목·요약 검색">
+        <select id="sort" aria-label="정렬">
+          <option value="id">번호순</option>
+          <option value="chars-d">분량 많은순</option>
+          <option value="chars-a">분량 적은순</option>
+          <option value="age-a">연령 낮은순</option>
+          <option value="age-d">연령 높은순</option>
+        </select>
+        <button id="reset" class="btn ghost small">필터 초기화</button>
+      </div>
+      <div id="filters"></div>
+      <div id="active" class="active"></div>
+      <div id="count" class="muted count"></div>
+      <div id="grid" class="grid"></div>
+      <div id="pager" class="pager"></div>
+    </section>
+  </main>
+</div>
+<aside id="drawer" class="drawer" hidden role="dialog" aria-modal="true">
+  <div class="drawer-bar">
+    <button id="prev" class="btn ghost small">← 이전</button>
+    <button id="next" class="btn ghost small">다음 →</button>
+    <span class="grow"></span>
+    <button id="close" class="btn ghost small">닫기 ✕</button>
+  </div>
+  <div id="detail" class="detail"></div>
+</aside>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
