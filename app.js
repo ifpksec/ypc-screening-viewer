@@ -269,8 +269,10 @@ let JF = null, jpage = 1;
 function initJudge() {
   const groups = [{ key: 'st', label: '상태', get: r => [stText(r)] }];
   if (S.role === 'admin') groups.push({ key: 'j', label: '심사위원', get: r => [r.judge] });
-  groups.push({ key: 'c', label: '군집', get: r => [r.item.cluster_name] });
-  JF = mkFilter(groups, r => r.id + ' ' + r.item.title + ' ' + r.item.summary + ' ' + r.judge);
+  const maxT = sum(S.settings.criteria.map(c => c.max));
+  groups.push({ key: 'sc', label: '점수대', order: ['90% 이상', '80~89%', '70~79%', '70% 미만'], get: r => { if (r.status !== 'done') return []; const p = Number(r.total) / maxT * 100; return [p >= 90 ? '90% 이상' : p >= 80 ? '80~89%' : p >= 70 ? '70~79%' : '70% 미만']; } });
+  for (const g of CGROUPS) groups.push({ key: 'i_' + g.key, label: g.label, order: g.order, get: r => g.get(r.item) });
+  JF = mkFilter(groups, r => r.id + ' ' + r.item.title + ' ' + r.item.headline + ' ' + r.item.summary + ' ' + r.judge);
   if (S.role === 'judge') JF.sel.st = new Set(['평가 대기']);
   jpage = 1;
 }
@@ -281,6 +283,7 @@ function renderJudge() {
     el('b', {}, S.role === 'admin' ? '전체 심사 진행' : S.judge.name + ' 심사위원 님의 평가'), ' ',
     el('span', { class: 'muted' }, '평가 완료 ' + done + ' / 배정 ' + rows.length + ' (' + pct(done, rows.length) + ') · 평가 대기 ' + (rows.length - done)),
     el('div', { class: 'prog' }, el('span', { style: 'width:' + (rows.length ? done / rows.length * 100 : 0) + '%' })),
+    el('div', { class: 'openrow' }, el('button', { class: 'btn small', onclick: zipFromTab }, S.role === 'admin' ? '현재 목록 원본 zip 다운로드' : '내 담당 원본 전체 zip 다운로드')),
     el('div', { class: 'hint' }, '완료 기준: 모든 평가 항목 점수 입력(범위 내) + 의견 ' + S.settings.min_comment + '자 이상. 기준에 못 미치면 저장은 되지만 "평가 대기(작성중)"으로 남습니다.')));
   if (!rows.length) { $('#jfilters').replaceChildren(); $('#jactive').replaceChildren(); $('#jcount').textContent = ''; $('#jpager').replaceChildren();
     $('#jgrid').replaceChildren(el('p', { class: 'muted' }, S.role === 'admin' ? '배정된 평가가 없습니다. 설정 탭에서 심사위원을 추가하고 랜덤 할당을 실행하세요.' : '배정된 평가가 없습니다. 관리자에게 문의하세요.')); return; }
@@ -439,6 +442,50 @@ async function showQR(name, code) {
 }
 $('#qrClose').addEventListener('click', () => { $('#qr').hidden = true; });
 
+// ---------- 담당 원본 전체 zip ----------
+function zipFromTab() {
+  const rows = evalRows();
+  if (S.role === 'judge') return zipOriginals([...new Set(rows.map(r => r.id))], 'YPC_' + S.judge.name + '_담당원본');
+  const ids = [...new Set(rows.filter(r => JF.match(r)).map(r => r.id))];
+  if (!ids.length) return alert('다운로드할 사례가 없습니다.');
+  zipOriginals(ids, 'YPC_원본_' + ids.length + '건');
+}
+async function zipOriginals(ids, name) {
+  $('#origTitle').textContent = '원본 zip 만들기'; $('#origTitle').dataset.id = ''; $('#origFiles').replaceChildren(); $('#orig').hidden = false; setCur(null);
+  if (!store.get('ypc_gh')) return tokenForm(null, () => zipOriginals(ids, name));
+  const info = el('p'), bar = el('span', { style: 'width:0%' }), log = el('div', { class: 'hint' }); let cancel = false;
+  const stop = el('button', { class: 'btn', onclick: () => { cancel = true; stop.disabled = true; } }, '취소');
+  const body = $('#origBody'); body.replaceChildren(el('div', { class: 'tokbox' }, el('b', {}, '원본 zip 만들기 (' + ids.length + '건)'), info, el('div', { class: 'prog' }, bar), log, stop,
+    el('p', { class: 'hint' }, '브라우저에서 파일을 모아 압축합니다. 용량이 크면 시간이 걸리니 이 창을 닫지 마세요.')));
+  const fail = msg => { body.replaceChildren(el('div', { class: 'tokbox' }, el('p', { class: 'err' }, msg), el('button', { class: 'btn', onclick: origClose }, '닫기'))); };
+  const mb = n => (n / 1048576).toFixed(1) + 'MB';
+  try {
+    await loadLib('jszip', 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js');
+    info.textContent = '파일 목록 조회 중…';
+    const tr = await fetch(`https://api.github.com/repos/${CFG.ORIG_REPO}/git/trees/main?recursive=1`, { headers: ghHeaders(false) });
+    if ([401, 403, 404].includes(tr.status)) { store.del('ypc_gh'); tokenForm(null, () => zipOriginals(ids, name)); $('#origBody .err').textContent = '토큰이 올바르지 않거나 권한이 부족합니다(' + tr.status + ').'; return; }
+    if (!tr.ok) throw new Error('목록 조회 실패 (' + tr.status + ')');
+    const tree = await tr.json(); if (tree.truncated) throw new Error('파일 목록이 너무 커서 일부만 조회되었습니다.');
+    const want = new Set(ids), pre = CFG.ORIG_DIR + '/';
+    const files = tree.tree.filter(t => t.type === 'blob' && t.path.startsWith(pre) && want.has(t.path.split('/')[1]));
+    if (!files.length) throw new Error('해당 사례의 원본 파일을 찾지 못했습니다.');
+    const totalB = files.reduce((s, f) => s + f.size, 0); const zip = new window.JSZip(); const fails = []; let idx = 0, done = 0, got = 0;
+    const upd = () => { info.textContent = done + ' / ' + files.length + ' 파일 · ' + mb(got) + ' / ' + mb(totalB); bar.style.width = (done / files.length * 100) + '%'; };
+    upd();
+    const worker = async () => { while (!cancel) { const i = idx++; if (i >= files.length) return; const f = files[i];
+      try { const r = await fetch(`https://api.github.com/repos/${CFG.ORIG_REPO}/contents/${apiPath(f.path)}`, { headers: ghHeaders(true) }); if (!r.ok) throw new Error(r.status);
+        zip.file(f.path.slice(pre.length), await r.arrayBuffer(), { compression: 'STORE' }); } catch (e) { fails.push(f.path.slice(pre.length) + ' (' + e.message + ')'); }
+      done++; got += f.size; upd(); } };
+    await Promise.all([worker(), worker(), worker(), worker()]);
+    if (cancel) { fail('취소되었습니다.'); return; }
+    info.textContent = 'zip 생성 중…'; bar.style.width = '0%';
+    const blob = await zip.generateAsync({ type: 'blob', streamFiles: true, compression: 'STORE' }, m => { bar.style.width = m.percent + '%'; });
+    const u = URL.createObjectURL(blob); const a = el('a', { href: u, download: name + '.zip' }); document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 10000);
+    body.replaceChildren(el('div', { class: 'tokbox' }, el('b', {}, '다운로드를 시작했습니다'), el('p', {}, name + '.zip · ' + (files.length - fails.length) + '개 파일 · ' + mb(blob.size)),
+      fails.length ? el('p', { class: 'err' }, '실패 ' + fails.length + '개: ' + fails.slice(0, 5).join(', ')) : null, el('button', { class: 'btn primary', onclick: origClose }, '닫기')));
+  } catch (e) { fail(e.message); }
+}
+
 // ---------- 원본 뷰어 (비공개 GitHub 레포, 읽기 전용 토큰) ----------
 const libs = {};
 const loadLib = (name, src) => libs[name] || (libs[name] = new Promise((ok, no) => { const s = el('script', { src }); s.onload = ok; s.onerror = () => { delete libs[name]; no(new Error(name + ' 로드 실패')); }; document.head.append(s); }));
@@ -460,9 +507,9 @@ $('#origPrint').addEventListener('click', () => {
 function origClose() { setCur(null); $('#orig').hidden = true; if (origUrl) { URL.revokeObjectURL(origUrl); origUrl = null; } $('#origBody').replaceChildren(); }
 $('#origClose').addEventListener('click', origClose);
 $('#origToken').addEventListener('click', () => { store.del('ypc_gh'); const t = $('#origTitle').dataset.id; origClose(); const d = ITEM[t]; if (d) openOriginal(d); });
-function tokenForm(d) {
+function tokenForm(d, after) {
   const inp = el('input', { type: 'password', placeholder: 'github_pat_…', autocomplete: 'off' });
-  $('#origBody').replaceChildren(el('form', { class: 'tokbox', onsubmit: e => { e.preventDefault(); if (!inp.value.trim()) return; store.set('ypc_gh', inp.value.trim()); listOriginal(d); } },
+  $('#origBody').replaceChildren(el('form', { class: 'tokbox', onsubmit: e => { e.preventDefault(); if (!inp.value.trim()) return; store.set('ypc_gh', inp.value.trim()); after ? after() : listOriginal(d); } },
     el('b', {}, '비공개 레포 읽기 토큰이 필요합니다'),
     el('ol', {}, el('li', {}, 'GitHub → Settings → Developer settings → Fine-grained tokens'), el('li', {}, 'Repository access: ' + CFG.ORIG_REPO + ' 만 선택'), el('li', {}, 'Permissions: Contents → Read-only 로 생성')),
     inp, el('button', { class: 'btn primary', type: 'submit' }, '저장하고 열기'), el('p', { class: 'err' }),
