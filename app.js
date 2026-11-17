@@ -318,6 +318,9 @@ function renderEvalStats(v) {
 }
 
 // ---------- 사례 목록 ----------
+// 도식·표 비중: 본문 docx에서 표 안 글자 + 텍스트상자·도형 글자 + 그림 면적(쪽 면적=1,800자로 환산)이 전체에서 차지하는 비율(%)
+const VIS_ORDER = ['40% 이상', '60% 이상', '80% 이상', '40% 미만', '측정 불가(docx 외)'];
+const visBands = d => d.vis_pct == null ? ['측정 불가(docx 외)'] : [d.vis_pct >= 40 ? '40% 이상' : '40% 미만', ...(d.vis_pct >= 60 ? ['60% 이상'] : []), ...(d.vis_pct >= 80 ? ['80% 이상'] : [])];
 const CGROUPS = [
   { key: 'type', label: '유형', get: d => [d.type ? d.type + '안' : '미상'] },
   { key: 'cluster', label: '군집', get: d => [d.cluster_name] },
@@ -326,6 +329,7 @@ const CGROUPS = [
   { key: 'topic', label: '주제', get: d => d.topics },
   { key: 'ai', label: 'AI 도구', get: d => d.ai },
   { key: 'tech', label: '기술', get: d => d.tech },
+  { key: 'vis', label: '도식·표 비중', get: d => visBands(d), order: VIS_ORDER },
   { key: 'sep', label: '별도자료', get: d => [d.sep ? '있음' : '없음'] },
   { key: 'fmt', label: '형식', get: d => [d.fmt || '?'] }
 ];
@@ -418,9 +422,8 @@ function showDetail(id) {
     el('h2', {}, d.title), d.headline ? el('div', { class: 'hl', style: 'color:var(--pr)' }, d.headline) : null,
     el('div', { class: 'sum' }, d.summary || '(요약 없음)'),
     el('div', { class: 'tags' }, d.topics.map(t => el('span', { class: 'tag' }, t)), d.ai.map(t => el('span', { class: 'tag g' }, t)), d.tech.map(t => el('span', { class: 'tag g' }, t))),
-    el('dl', { class: 'kv' }, kv('군집', d.cluster_name), kv('연령(추정)', d.age ? d.age + '세 (' + d.age_band + ')' : '확인 불가'), kv('가구', d.household.join(', ') || '미분류'), kv('본문 분량', d.chars.toLocaleString() + '자'), kv('별도자료', sepTxt), d.note ? kv('비고', d.note) : []),
+    el('dl', { class: 'kv' }, kv('군집', d.cluster_name), kv('연령(추정)', d.age ? d.age + '세 (' + d.age_band + ')' : '확인 불가'), kv('가구', d.household.join(', ') || '미분류'), kv('본문 분량', d.chars.toLocaleString() + '자'), kv('도식·표 비중', d.vis_pct == null ? '측정 불가(docx 외 형식)' : d.vis_pct + '%'), kv('별도자료', sepTxt), d.note ? kv('비고', d.note) : []),
     el('div', { class: 'openrow' }, el('button', { class: 'btn primary', onclick: () => openOriginal(d) }, '원본 보기'),
-      S.role === 'admin' ? el('a', { class: 'btn', href: CFG.LOCAL_VIEWER + d.id + '.html', target: '_blank', rel: 'noopener' }, '변환본(로컬)') : null,
       el('button', { class: 'btn', onclick: () => navigator.clipboard && navigator.clipboard.writeText(d.id) }, '번호 복사')),
     d.sep ? sepBox(d) : null,
     el('p', { class: 'hint' }, '원본 보기: 비공개 레포(' + CFG.ORIG_REPO + ')에서 읽기 전용 토큰으로 직접 불러옵니다.'));
