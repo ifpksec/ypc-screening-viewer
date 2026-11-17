@@ -11,7 +11,7 @@ body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.55 "Pretendard","
 .gate-box{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:28px;width:min(380px,100%);display:grid;gap:12px;box-shadow:var(--shadow)}
 .gate-box h1{font-size:20px;margin:0}.gate-box p{margin:0}
 input,select{font:inherit;color:var(--tx);background:var(--card);border:1px solid var(--bd);border-radius:8px;padding:8px 12px}
-.top{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:16px;padding:10px 16px;background:var(--card);border-bottom:1px solid var(--bd);flex-wrap:wrap}
+.top{position:static;display:flex;align-items:center;gap:16px;padding:10px 16px;background:var(--card);border-bottom:1px solid var(--bd);flex-wrap:wrap}
 .brand{display:flex;align-items:center;gap:8px}.logo{width:18px;height:18px;border-radius:5px;background:var(--pr);display:inline-block}
 .tabs{display:flex;gap:4px;margin-left:8px;flex:1}
 .tab{font:inherit;background:none;border:0;padding:8px 14px;border-radius:8px;cursor:pointer;color:var(--mu)}
@@ -97,15 +97,13 @@ textarea{font:inherit;color:var(--tx);background:var(--card);border:1px solid va
   body.printing-orig .docx{border:0!important;max-width:none!important;background:#fff!important;color:#000!important;padding:0!important}
   body.printing-orig .docx table{page-break-inside:auto}body.printing-orig .docx tr{page-break-inside:avoid}
 }
-.impbar{position:sticky;top:0;z-index:6;display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:8px 16px;background:#b45309;color:#fff;font-size:13.5px}
+.impbar{position:static;display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:8px 16px;background:#b45309;color:#fff;font-size:13.5px}
 .impbar .btn{background:#fff;color:#7c2d12;border-color:#fff}
-.impbar:not([hidden])~.top{top:var(--impH,46px)}
-@media (max-width:560px){.impbar:not([hidden])~.top{top:0}.impbar{position:static}}
 
 .detailbar{display:flex;gap:8px;align-items:center;margin-bottom:14px}
 #view-detail .detail{padding:0 0 48px;max-width:1100px}
 .dgrid{display:grid;grid-template-columns:minmax(0,1fr);gap:8px 32px;align-items:start}
-@media (min-width:1000px){.dgrid{grid-template-columns:minmax(0,1fr) minmax(360px,440px)}.dgrid>.evalbox{position:sticky;top:70px;margin-top:0;border-top:0;padding-top:0}}
+@media (min-width:1000px){.dgrid{grid-template-columns:minmax(0,1fr) minmax(360px,440px)}.dgrid>.evalbox{position:sticky;top:16px;margin-top:0;border-top:0;padding-top:0}}
 
 .sepbox{margin-top:18px;border-top:1px solid var(--bd);padding-top:14px}.sepbox h3{margin:0 0 8px;font-size:15px}.sepbox .about{margin:0 0 10px;background:var(--prb);border-radius:8px;padding:8px 12px}
 .sep-h{font-weight:600;font-size:13.5px;margin:12px 0 4px}.sepbox .readme{margin:0;color:var(--mu);font-size:13.5px}
