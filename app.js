@@ -215,10 +215,70 @@ function openDetail(id) {
     el('dl', { class: 'kv' }, kv('군집', d.cluster_name), kv('연령(추정)', d.age ? d.age + '세 (' + d.age_band + ')' : '확인 불가'), kv('가구', d.household.join(', ') || '미분류'), kv('본문 분량', d.chars.toLocaleString() + '자'), kv('별도자료', sepTxt), d.note ? kv('비고', d.note) : []),
     el('div', { class: 'openrow' },
       el('a', { class: 'btn primary', href: url, target: '_blank', rel: 'noopener' }, '원문 열기 (로컬)'),
+      el('button', { class: 'btn primary', onclick: () => openOriginal(d) }, '원본 보기'),
+      el('a', { class: 'btn', href: url, target: '_blank', rel: 'noopener' }, '변환본(로컬)'),
       el('button', { class: 'btn', onclick: () => navigator.clipboard && navigator.clipboard.writeText(d.id) }, '번호 복사')),
-    el('p', { class: 'hint' }, '원문은 심사 PC에서 로컬 뷰어(serve_local)를 실행했을 때만 열립니다. 원문·원본 파일은 이 사이트와 Supabase에 저장되지 않습니다.'));
+    el('p', { class: 'hint' }, '원본 보기: 비공개 레포(' + CFG.ORIG_REPO + ')에서 읽기 전용 토큰으로 직접 불러옵니다. 변환본(로컬)은 심사 PC에서 serve_local 실행 시에만 열립니다.'));
   $('#prev').disabled = curIdx <= 0; $('#next').disabled = curIdx < 0 || curIdx >= view.length - 1;
   $('#drawer').hidden = false; $('#drawer').scrollTop = 0;
+}
+// ---------- 원본 뷰어 (비공개 GitHub 레포, 읽기 전용 토큰) ----------
+const libs = {};
+const loadLib = (name, src) => libs[name] || (libs[name] = new Promise((ok, no) => { const s = el('script', { src }); s.onload = ok; s.onerror = () => no(new Error(name + ' 로드 실패')); document.head.append(s); }));
+const ghHeaders = (raw) => ({ Authorization: 'Bearer ' + store.get('ypc_gh'), Accept: raw ? 'application/vnd.github.raw+json' : 'application/vnd.github+json' });
+const apiPath = (p) => p.split('/').map(encodeURIComponent).join('/');
+let origUrl = null;
+function origClose() { $('#orig').hidden = true; if (origUrl) { URL.revokeObjectURL(origUrl); origUrl = null; } $('#origBody').replaceChildren(); }
+$('#origClose').addEventListener('click', origClose);
+$('#origToken').addEventListener('click', () => { store.del('ypc_gh'); const t = $('#origTitle').dataset.id; origClose(); const d = DATA.find(x => x.id === t); if (d) openOriginal(d); });
+function tokenForm(d) {
+  const inp = el('input', { type: 'password', placeholder: 'github_pat_…', autocomplete: 'off' });
+  const msg = el('p', { class: 'err' });
+  $('#origBody').replaceChildren(el('form', { class: 'tokbox', onsubmit: e => { e.preventDefault(); if (!inp.value.trim()) return; store.set('ypc_gh', inp.value.trim()); listOriginal(d); } },
+    el('b', {}, '비공개 레포 읽기 토큰이 필요합니다'),
+    el('ol', {}, el('li', {}, 'GitHub → Settings → Developer settings → Fine-grained tokens'), el('li', {}, 'Repository access: ' + CFG.ORIG_REPO + ' 만 선택'), el('li', {}, 'Permissions: Contents → Read-only 로 생성')),
+    inp, el('button', { class: 'btn primary', type: 'submit' }, '저장하고 열기'), msg,
+    el('p', { class: 'hint' }, '토큰은 이 브라우저 탭(sessionStorage)에만 저장되며 서버로 전송되지 않습니다. 탭을 닫으면 사라집니다.')));
+}
+async function openOriginal(d) {
+  $('#origTitle').textContent = d.id + ' 원본'; $('#origTitle').dataset.id = d.id; $('#origFiles').replaceChildren();
+  $('#orig').hidden = false;
+  if (!store.get('ypc_gh')) return tokenForm(d);
+  listOriginal(d);
+}
+async function listOriginal(d) {
+  const body = $('#origBody'); body.replaceChildren(el('p', { class: 'muted' }, '파일 목록을 불러오는 중…'));
+  try {
+    const r = await fetch(`https://api.github.com/repos/${CFG.ORIG_REPO}/contents/${apiPath(CFG.ORIG_DIR + '/' + d.id)}`, { headers: ghHeaders(false) });
+    if (r.status === 401 || r.status === 403 || r.status === 404) { store.del('ypc_gh'); tokenForm(d); $('#origBody .err').textContent = r.status === 404 ? '레포·경로를 찾을 수 없거나 토큰 권한이 부족합니다(' + r.status + ').' : '토큰이 올바르지 않습니다(' + r.status + ').'; return; }
+    if (!r.ok) throw new Error('목록 조회 실패 (' + r.status + ')');
+    const files = (await r.json()).filter(f => f.type === 'file');
+    const bar = $('#origFiles'); bar.replaceChildren();
+    const btns = files.map(f => el('button', { class: 'filebtn', 'aria-pressed': 'false', onclick: () => showFile(f, btns) }, f.name + ' · ' + (f.size / 1024 < 1024 ? Math.round(f.size / 1024) + 'KB' : (f.size / 1048576).toFixed(1) + 'MB')));
+    bar.append(...btns);
+    const main = files.findIndex(f => /_(A|B)안\./.test(f.name) && !/_별도/.test(f.name));
+    if (btns.length) showFile(files[main >= 0 ? main : 0], btns); else body.replaceChildren(el('p', {}, '파일이 없습니다(업로드가 아직 진행 중일 수 있습니다).'));
+  } catch (e) { body.replaceChildren(el('p', { class: 'err' }, e.message)); }
+}
+async function showFile(f, btns) {
+  btns.forEach(b => b.setAttribute('aria-pressed', String(b.textContent.startsWith(f.name + ' ·'))));
+  const body = $('#origBody'); body.replaceChildren(el('p', { class: 'muted' }, '불러오는 중…'));
+  if (origUrl) { URL.revokeObjectURL(origUrl); origUrl = null; }
+  try {
+    const r = await fetch(f.url, { headers: ghHeaders(true) });
+    if (!r.ok) throw new Error('파일 조회 실패 (' + r.status + ')');
+    const buf = await r.arrayBuffer(); const ext = f.name.split('.').pop().toLowerCase();
+    if (ext === 'docx') {
+      await Promise.all([loadLib('mammoth', 'https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js'), loadLib('purify', 'https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.6/purify.min.js')]);
+      const res = await window.mammoth.convertToHtml({ arrayBuffer: buf });
+      const div = el('div', { class: 'docx' }); div.innerHTML = window.DOMPurify.sanitize(res.value); body.replaceChildren(div);
+    } else if (ext === 'pdf') {
+      origUrl = URL.createObjectURL(new Blob([buf], { type: 'application/pdf' })); body.replaceChildren(el('iframe', { src: origUrl, title: f.name }));
+    } else {
+      origUrl = URL.createObjectURL(new Blob([buf]));
+      body.replaceChildren(el('p', {}, '이 형식은 미리보기를 지원하지 않습니다. '), el('a', { class: 'btn primary', href: origUrl, download: f.name }, f.name + ' 다운로드'));
+    }
+  } catch (e) { body.replaceChildren(el('p', { class: 'err' }, e.message)); }
 }
 $('#prev').addEventListener('click', () => curIdx > 0 && openDetail(view[curIdx - 1].id));
 $('#next').addEventListener('click', () => curIdx < view.length - 1 && openDetail(view[curIdx + 1].id));
