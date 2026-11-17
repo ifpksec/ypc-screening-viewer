@@ -89,3 +89,11 @@ textarea{font:inherit;color:var(--tx);background:var(--card);border:1px solid va
 .sect{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:16px;margin-bottom:16px}.sect h3{margin:0 0 4px;font-size:16px}.sect .sub{margin:0 0 12px;color:var(--mu);font-size:13px}
 .judgeev{background:var(--bg);border-radius:10px;padding:10px 12px;margin:8px 0}.judgeev p{margin:6px 0 0;white-space:pre-wrap;font-size:14px}
 .newcode{background:var(--prb);border-radius:8px;padding:8px 12px;margin:8px 0;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+@media print{
+  body.printing-orig>*:not(#orig){display:none!important}
+  body.printing-orig #orig{position:static!important;display:block!important;background:#fff!important}
+  body.printing-orig .orig-bar{display:none!important}
+  body.printing-orig .orig-body{overflow:visible!important;padding:0!important}
+  body.printing-orig .docx{border:0!important;max-width:none!important;background:#fff!important;color:#000!important;padding:0!important}
+  body.printing-orig .docx table{page-break-inside:auto}body.printing-orig .docx tr{page-break-inside:avoid}
+}

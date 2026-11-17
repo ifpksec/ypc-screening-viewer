@@ -445,7 +445,19 @@ const loadLib = (name, src) => libs[name] || (libs[name] = new Promise((ok, no) 
 const ghHeaders = raw => ({ Authorization: 'Bearer ' + store.get('ypc_gh'), Accept: raw ? 'application/vnd.github.raw+json' : 'application/vnd.github+json' });
 const apiPath = p => p.split('/').map(encodeURIComponent).join('/');
 let origUrl = null;
-function origClose() { $('#orig').hidden = true; if (origUrl) { URL.revokeObjectURL(origUrl); origUrl = null; } $('#origBody').replaceChildren(); }
+let origCur = null;
+const MIME = { docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', pdf: 'application/pdf', zip: 'application/zip', doc: 'application/msword' };
+function setCur(c) { origCur = c; $('#origDl').disabled = !c; $('#origPrint').disabled = !c || !['docx', 'pdf'].includes(c.ext); }
+$('#origDl').addEventListener('click', () => {
+  if (!origCur) return; const u = URL.createObjectURL(new Blob([origCur.buf], { type: MIME[origCur.ext] || 'application/octet-stream' }));
+  const a = el('a', { href: u, download: origCur.name }); document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 4000);
+});
+$('#origPrint').addEventListener('click', () => {
+  if (!origCur) return;
+  if (origCur.ext === 'pdf') { const fr = $('#origBody iframe'); if (fr && fr.contentWindow) { fr.contentWindow.focus(); fr.contentWindow.print(); } else window.open(origUrl, '_blank'); }
+  else { document.body.classList.add('printing-orig'); const done = () => { document.body.classList.remove('printing-orig'); window.removeEventListener('afterprint', done); }; window.addEventListener('afterprint', done); window.print(); }
+});
+function origClose() { setCur(null); $('#orig').hidden = true; if (origUrl) { URL.revokeObjectURL(origUrl); origUrl = null; } $('#origBody').replaceChildren(); }
 $('#origClose').addEventListener('click', origClose);
 $('#origToken').addEventListener('click', () => { store.del('ypc_gh'); const t = $('#origTitle').dataset.id; origClose(); const d = ITEM[t]; if (d) openOriginal(d); });
 function tokenForm(d) {
@@ -477,11 +489,11 @@ async function listOriginal(d) {
 }
 async function showFile(f, btns) {
   btns.forEach(b => b.setAttribute('aria-pressed', String(b.textContent.startsWith(f.name + ' ·'))));
-  const body = $('#origBody'); body.replaceChildren(el('p', { class: 'muted' }, '불러오는 중…'));
+  const body = $('#origBody'); body.replaceChildren(el('p', { class: 'muted' }, '불러오는 중…')); setCur(null);
   if (origUrl) { URL.revokeObjectURL(origUrl); origUrl = null; }
   try {
     const r = await fetch(f.url, { headers: ghHeaders(true) }); if (!r.ok) throw new Error('파일 조회 실패 (' + r.status + ')');
-    const buf = await r.arrayBuffer(); const ext = f.name.split('.').pop().toLowerCase();
+    const buf = await r.arrayBuffer(); const ext = f.name.split('.').pop().toLowerCase(); setCur({ name: f.name, ext, buf });
     if (ext === 'docx') {
       await Promise.all([loadLib('mammoth', 'https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js'), loadLib('purify', 'https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.6/purify.min.js')]);
       const res = await window.mammoth.convertToHtml({ arrayBuffer: buf });
