@@ -97,3 +97,7 @@ textarea{font:inherit;color:var(--tx);background:var(--card);border:1px solid va
   body.printing-orig .docx{border:0!important;max-width:none!important;background:#fff!important;color:#000!important;padding:0!important}
   body.printing-orig .docx table{page-break-inside:auto}body.printing-orig .docx tr{page-break-inside:avoid}
 }
+.impbar{position:sticky;top:0;z-index:6;display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:8px 16px;background:#b45309;color:#fff;font-size:13.5px}
+.impbar .btn{background:#fff;color:#7c2d12;border-color:#fff}
+.impbar~.top{top:46px}
+@media (max-width:560px){.impbar~.top{top:0}.impbar{position:static}}

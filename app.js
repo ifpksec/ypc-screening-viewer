@@ -87,7 +87,7 @@ function renderPager(root, pg, pages, go) {
 }
 
 // ---------- 로그인 ----------
-async function unlock(code) {
+async function unlock(code, opts = {}) {
   S.code = code;
   const who = await rpc('ypc_whoami', { code });
   S.role = who.role; S.judge = who.judge; S.settings = who.settings;
@@ -99,10 +99,12 @@ async function unlock(code) {
   }
   ITEM = Object.fromEntries(DATA.map(d => [d.id, d]));
   if (S.role === 'admin') ADMIN = await call('ypc_admin_state');
+  if (!opts.keepImp || S.role !== 'judge') store.del('ypc_admin');
   store.set('ypc_code', code);
+  $('#drawer').hidden = true; $('#qr').hidden = true; if (!$('#orig').hidden) origClose();
   $('#gate').hidden = true; $('#app').hidden = false;
   $('#total').textContent = S.role === 'admin' ? '관리자 · ' + DATA.length + '건' : '심사위원 ' + S.judge.name;
-  buildTabs(); initCards(); initJudge();
+  buildTabs(); initCards(); initJudge(); renderImpBar();
   show(S.role === 'admin' ? 'stats' : 'judge');
 }
 $('#gateForm').addEventListener('submit', async e => {
@@ -110,13 +112,29 @@ $('#gateForm').addEventListener('submit', async e => {
   try { await unlock($('#code').value.trim()); } catch (err) { $('#gateMsg').textContent = err.message; }
   btn.disabled = false;
 });
-$('#logout').addEventListener('click', () => { store.del('ypc_code'); store.del('ypc_gh'); history.replaceState(null, '', location.pathname); location.reload(); });
+$('#logout').addEventListener('click', () => { store.del('ypc_code'); store.del('ypc_gh'); store.del('ypc_admin'); history.replaceState(null, '', location.pathname); location.reload(); });
 (function autoLogin() {
   const m = /[#&]c=([^&]+)/.exec(location.hash);
   const code = m ? decodeURIComponent(m[1]) : store.get('ypc_code');
   if (m) history.replaceState(null, '', location.pathname + location.search);
-  if (code) unlock(code).catch(e => { store.del('ypc_code'); $('#gateMsg').textContent = e.message; });
+  if (code) unlock(code, { keepImp: !m }).catch(e => { store.del('ypc_code'); $('#gateMsg').textContent = e.message; });
 })();
+
+// ---------- 관리자 대리 접속(심사위원으로 보기) ----------
+function renderImpBar() {
+  const bar = $('#impbar'); const imp = S.role === 'judge' && store.get('ypc_admin');
+  bar.hidden = !imp; bar.replaceChildren(); if (!imp) return;
+  bar.append(el('span', {}, '관리자 대리 접속 중: ', el('b', {}, S.judge.name), ' 심사위원 화면입니다. 여기서 저장하는 평가는 해당 심사위원 이름으로 기록됩니다.'),
+    el('button', { class: 'btn small primary', onclick: backToAdmin }, '관리자로 돌아가기'));
+}
+async function impersonate(j) {
+  if (!j.code) return; store.set('ypc_admin', S.code);
+  try { await unlock(j.code, { keepImp: true }); } catch (e) { store.del('ypc_admin'); alert('심사위원 로그인 실패: ' + e.message); }
+}
+async function backToAdmin() {
+  const a = store.get('ypc_admin'); if (!a) return;
+  try { await unlock(a); } catch (e) { store.del('ypc_admin'); store.del('ypc_code'); alert('관리자 복귀 실패(코드가 변경되었을 수 있습니다): ' + e.message); location.reload(); }
+}
 
 // ---------- 탭 ----------
 const TABS = { stats: '통계·군집', cards: '사례 목록', judge: '심사위원', settings: '설정' };
@@ -386,6 +404,7 @@ async function renderSettings() {
       el('td', {}, el('div', { class: 'row-actions' },
         el('button', { class: 'btn small', onclick: async () => { await act(() => call('ypc_admin_judge_save', { p_id: j.id, p_name: nm.value, p_active: ac.checked }), j.name + ' 저장됨'); redo(); } }, '저장'),
         j.code ? el('button', { class: 'btn small', onclick: () => showQR(j.name, j.code) }, 'QR') : null,
+        j.code && j.active ? el('button', { class: 'btn small', title: '이 심사위원 화면으로 전환(관리자로 돌아올 수 있음)', onclick: () => impersonate(j) }, '심사위원으로 로그인') : null,
         el('button', { class: 'btn small', onclick: async () => { if (!confirm(j.name + ' 의 접근코드를 새로 생성합니다. 기존 코드는 즉시 무효가 됩니다.')) return; await act(() => call('ypc_admin_judge_code', { p_id: j.id, p_new: '' }), j.name + ' 코드 재생성됨'); redo(); } }, '재생성'),
         el('button', { class: 'btn small', onclick: async () => { const c = prompt(j.name + ' 새 접근코드 직접 입력 (6자 이상)'); if (!c) return; await act(() => call('ypc_admin_judge_code', { p_id: j.id, p_new: c }), j.name + ' 코드 변경됨'); redo(); } }, '직접 설정'),
         el('button', { class: 'btn small', onclick: async () => { if (!confirm(j.name + ' 삭제: 배정과 평가 기록이 함께 삭제됩니다. 계속할까요?')) return; await act(() => call('ypc_admin_judge_delete', { p_id: j.id }), j.name + ' 삭제됨'); redo(); } }, '삭제')))));
