@@ -99,6 +99,7 @@ async function unlock(code, opts = {}) {
   }
   ITEM = Object.fromEntries(DATA.map(d => [d.id, d]));
   if (S.role === 'admin') ADMIN = await call('ypc_admin_state');
+  try { const tk = await call('ypc_orig_token'); if (tk) store.set('ypc_gh', tk); } catch {} // 관리자가 등록한 공용 읽기 토큰 자동 적용
   if (!opts.keepImp || S.role !== 'judge') store.del('ypc_admin');
   store.set('ypc_code', code);
   $('#drawer').hidden = true; $('#qr').hidden = true; if (!$('#orig').hidden) origClose();
@@ -441,6 +442,18 @@ async function renderSettings() {
   const mc = el('input', { type: 'number', min: 0, max: 2000, value: st.min_comment, style: 'width:90px' });
   sections.push(el('div', { class: 'sect' }, el('h3', {}, '평가 완료 규칙'), el('p', { class: 'sub' }, '평가 완료 = 모든 기준 점수가 범위 내로 입력됨 + 의견이 최소 글자수 이상. 변경은 이후 저장하는 평가부터 적용됩니다.'),
     el('div', { class: 'toolbar' }, el('label', {}, '의견 최소 글자수 ', mc), el('button', { class: 'btn primary', onclick: async () => { await act(() => call('ypc_admin_settings', { s: { min_comment: Number(mc.value) } }), '저장됨'); redo(); } }, '저장'))));
+  // 4-1) 원본 열람 토큰(공용)
+  const tkIn = el('input', { type: 'password', placeholder: 'github_pat_… (ypc-originals 읽기 전용)', autocomplete: 'off', style: 'min-width:260px;flex:1' }); const tkMsg = el('div', { class: 'msg' });
+  sections.push(el('div', { class: 'sect' }, el('h3', {}, '원본 열람 토큰 (공용)'),
+    el('p', { class: 'sub' }, '등록하면 로그인한 관리자·심사위원이 별도 입력 없이 원본 보기·다운로드·zip을 쓸 수 있습니다. fine-grained 토큰(Repository: ' + CFG.ORIG_REPO + ' 만, Contents: Read-only)을 권장합니다. 토큰은 Supabase에만 저장되고 공개 코드에는 들어가지 않으며, 로그인한 사용자의 브라우저로만 전달됩니다. 상태: ' + (ADMIN.token_hint ? '등록됨 (끝 4자리 ' + ADMIN.token_hint + ')' : '미등록')),
+    el('div', { class: 'toolbar' }, tkIn,
+      el('button', { class: 'btn primary', onclick: async () => {
+        const t = tkIn.value.trim(); if (!t) return; tkMsg.className = 'msg'; tkMsg.textContent = '토큰 검증 중…';
+        try { const r = await fetch(`https://api.github.com/repos/${CFG.ORIG_REPO}/contents/${apiPath(CFG.ORIG_DIR + '/YPC2026-001')}`, { headers: { Authorization: 'Bearer ' + t, Accept: 'application/vnd.github+json' } });
+          if (!r.ok) throw new Error('이 토큰으로 원본 레포를 읽을 수 없습니다 (' + r.status + '). 레포 선택·Contents 읽기 권한을 확인하세요.');
+          await call('ypc_admin_settings', { s: { orig_token: t } }); store.set('ypc_gh', t); flash = { ok: true, msg: '공용 토큰이 검증되어 저장되었습니다.' }; redo();
+        } catch (e) { tkMsg.className = 'msg no'; tkMsg.textContent = e.message; } } }, '검증 후 저장'),
+      ADMIN.token_hint ? el('button', { class: 'btn', onclick: async () => { if (!confirm('공용 토큰을 삭제합니다. 이후 심사위원은 개별 토큰을 입력해야 원본을 볼 수 있습니다.')) return; await act(() => call('ypc_admin_settings', { s: { orig_token: '' } }), '공용 토큰 삭제됨'); store.del('ypc_gh'); redo(); } }, '삭제') : null), tkMsg));
   // 5) 관리자 코드
   const ac = el('input', { type: 'password', placeholder: '새 관리자 코드 (8자 이상)', autocomplete: 'off' });
   sections.push(el('div', { class: 'sect' }, el('h3', {}, '관리자 접근코드 변경'), el('p', { class: 'sub' }, '변경 즉시 현재 코드는 무효가 되며 이 브라우저는 새 코드로 유지됩니다.'),
