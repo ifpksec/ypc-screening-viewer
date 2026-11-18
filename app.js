@@ -1,7 +1,7 @@
 (() => {
 'use strict';
 // 캐시된 옛 index.html 과 새 app.js 가 섞인 경우(필수 요소 없음) 자동으로 새로 불러온다.
-if (['view-detail', 'view-stats', 'view-cards', 'view-judge', 'view-settings', 'orig', 'qr', 'impbar', 'back', 'navpos', 'gateBack', 'view-missing'].some(i => !document.getElementById(i))) {
+if (['view-detail', 'view-stats', 'view-cards', 'view-judge', 'view-settings', 'orig', 'qr', 'impbar', 'back', 'navpos', 'gateBack'].some(i => !document.getElementById(i))) {
   if (!/[?&]_r=/.test(location.search)) location.replace(location.pathname + '?_r=' + Date.now() + location.hash);
   else document.body.textContent = '페이지가 최신 상태가 아닙니다. Ctrl+F5 로 새로고침해 주세요.';
   return;
@@ -153,14 +153,14 @@ async function backToAdmin() {
 }
 
 // ---------- 탭 ----------
-const TABS = { stats: '통계·군집', cards: '사례 목록', missing: '누락 사례', judge: '심사위원', settings: '설정' };
+const TABS = { stats: '통계·군집', cards: '사례 목록', judge: '심사위원', settings: '설정' };
 function buildTabs() {
   if (!S.code) {
     $('#tabs').replaceChildren(el('button', { class: 'tab', role: 'tab', 'data-tab': 'stats', onclick: () => go('stats') }, TABS.stats),
-      ...['cards', 'missing', 'judge', 'settings'].map(n => el('button', { class: 'tab', role: 'tab', title: '접근코드가 필요합니다', onclick: () => openGate('이 탭은 접근코드가 필요합니다.') }, TABS[n] + ' 🔒')));
+      ...['cards', 'judge', 'settings'].map(n => el('button', { class: 'tab', role: 'tab', title: '접근코드가 필요합니다', onclick: () => openGate('이 탭은 접근코드가 필요합니다.') }, TABS[n] + ' 🔒')));
     return;
   }
-  const names = S.role === 'admin' ? ['stats', 'cards', 'missing', 'judge', 'settings'] : ['judge'];
+  const names = S.role === 'admin' ? ['stats', 'cards', 'judge', 'settings'] : ['judge'];
   $('#tabs').replaceChildren(...names.map(n => el('button', { class: 'tab', role: 'tab', 'data-tab': n, onclick: () => go(n) }, n === 'judge' && S.role === 'admin' ? '심사현황' : TABS[n])));
 }
 async function refreshAdmin() {
@@ -168,17 +168,17 @@ async function refreshAdmin() {
   try { [ASSIGN, ADMIN] = await Promise.all([call('ypc_assignments'), call('ypc_admin_state')]); S.settings = ADMIN.settings; } catch {}
 }
 let lastTab = null, detailPushed = false; const scrollPos = {};
-const TABKEYS = () => S.role === 'admin' ? ['stats', 'cards', 'missing', 'judge', 'settings'] : ['judge'];
+const TABKEYS = () => S.role === 'admin' ? ['stats', 'cards', 'judge', 'settings'] : ['judge'];
 function go(tab) { scrollPos[tab] = 0; location.hash = '#/' + tab; if (location.hash === '#/' + tab) route(); }
 function route() {
   if (!S.code) {
     if (!PUB) return;
-    if (/^#\/(cards|missing|judge|settings|case)/.test(location.hash)) { history.replaceState(null, '', location.pathname + location.search + '#/stats'); openGate('이 화면은 접근코드가 필요합니다.'); return; }
+    if (/^#\/(cards|judge|settings|case)/.test(location.hash)) { history.replaceState(null, '', location.pathname + location.search + '#/stats'); openGate('이 화면은 접근코드가 필요합니다.'); return; }
     show('stats'); return;
   }
   const m = /^#\/case\/([^/?#]+)/.exec(location.hash);
   if (m) { const id = decodeURIComponent(m[1]); if (ITEM[id]) return showDetail(id); }
-  const t = /^#\/(stats|cards|missing|judge|settings)/.exec(location.hash); const ok = t && TABKEYS().includes(t[1]);
+  const t = /^#\/(stats|cards|judge|settings)/.exec(location.hash); const ok = t && TABKEYS().includes(t[1]);
   const tab = ok ? t[1] : TABKEYS()[0];
   if (!ok) history.replaceState(null, '', location.pathname + location.search + '#/' + tab);
   show(tab);
@@ -190,7 +190,7 @@ async function show(tab) {
   for (const k of Object.keys(TABS)) $('#view-' + k).hidden = k !== tab;
   $('#view-detail').hidden = true;
   if (tab !== 'cards' && S.role === 'admin') await refreshAdmin();
-  if (tab === 'stats') renderStats(); if (tab === 'judge') renderJudge(); if (tab === 'settings') renderSettings(); if (tab === 'missing') renderMissing();
+  if (tab === 'stats') renderStats(); if (tab === 'judge') renderJudge(); if (tab === 'settings') renderSettings();
   window.scrollTo(0, scrollPos[tab] || 0);
 }
 
@@ -422,27 +422,6 @@ $('#sort').addEventListener('change', e => { cardSort = e.target.value; page = 1
 $('#reset').addEventListener('click', () => { CF.reset(); $('#q').value = ''; page = 1; applyCards(); });
 
 // ---------- 누락 사례 탭 ----------
-// 작업 폴더(02_제외)에는 있지만 사례 목록(01 대상 478건)에는 없는 사례. 실명이 파일명에 있어 번호·사유·파일 형식만 올려 두었다.
-let EXCL = null;
-async function renderMissing() {
-  const v = $('#view-missing');
-  if (!EXCL) { v.replaceChildren(el('p', { class: 'muted' }, '불러오는 중…')); try { EXCL = await call('ypc_excluded'); } catch (e) { v.replaceChildren(el('p', { class: 'err' }, '불러오지 못했습니다: ' + e.message)); return; } }
-  if (lastTab !== 'missing') return;
-  v.replaceChildren();
-  const cats = countOf(EXCL.map(x => x.cat));
-  const keptMissing = EXCL.filter(x => x.kept && !ITEM[x.kept]);
-  const keptIds = new Set(EXCL.map(x => x.kept).filter(Boolean));
-  v.append(el('div', { class: 'kpis' }, kpi(EXCL.length, '누락(작업 폴더 02_제외)'), kpi(cats.get('중복(이전 제출)') || 0, '중복(이전 제출)'), kpi(cats.get('제출 취소') || 0, '제출 취소'), kpi(cats.get('신청 정보 무효') || 0, '신청 정보 무효'),
-    kpi(keptIds.size, '유지본 번호 수'), kpi(keptMissing.length, '유지본이 목록에 없음')));
-  v.append(el('p', { class: 'hint', style: 'margin:0 0 12px' }, '사례 목록(01_1차 스크리닝 대상 478건)에 없고 작업 폴더 "02_제외 (중복·취소·삭제 33건)"에만 있는 사례입니다. 제외 사유는 사전 점검 결과 엑셀의 "이미 제외(33)" 시트 그대로입니다. 파일명에 실명이 있어 이름·본문은 올리지 않고 번호, 사유, 파일 형식·크기만 표시합니다.'));
-  if (keptMissing.length) v.append(el('div', { class: 'warnbox' }, '확인 필요: 유지본으로 지정된 ', keptMissing.map(x => x.kept).filter((a, i, arr) => arr.indexOf(a) === i).join(', '), ' 번이 사례 목록에 없습니다(그 번호도 제외 처리됨). 해당 묶음(', keptMissing.map(x => x.id).join(', '), ')은 남은 제출이 없을 수 있습니다.'));
-  const tbl = el('table', { class: 'tbl' }, el('tr', {}, ['접수번호', '구분', '제외 사유', '유지본', '파일(형식·KB)'].map(h => el('th', {}, h))));
-  for (const x of EXCL) {
-    const kept = !x.kept ? '—' : ITEM[x.kept] ? el('a', { href: '#/case/' + x.kept, style: 'color:var(--pr)' }, x.kept) : el('span', { class: 'err', style: 'margin:0' }, x.kept + ' (목록에 없음)');
-    tbl.append(el('tr', {}, el('td', {}, x.id), el('td', {}, x.cat), el('td', {}, x.reason), el('td', {}, kept), el('td', {}, x.files.map(f => f[0] + ' ' + f[1].toLocaleString()).join(' · '))));
-  }
-  v.append(el('div', { class: 'panel wide scroll' }, el('h3', {}, '누락 사례 ' + EXCL.length + '건'), tbl));
-}
 
 // ---------- 심사위원 탭 ----------
 const stText = r => r.status === 'done' ? '평가 완료' : '평가 대기';
