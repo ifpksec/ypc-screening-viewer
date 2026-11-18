@@ -39,7 +39,7 @@ const CL = {
 const AGE_ORDER = ['20대', '30대', '40대', '50대', '60대 이상', '연령미상'];
 const PAGE = 12;
 const S = { code: null, role: null, judge: null, settings: null };
-let DATA = [], ITEM = {}, ASSIGN = [], ADMIN = null, PUB = null; // PUB: 접근코드 없이 받는 공개 집계(통계 탭 전용)
+let DATA = [], ITEM = {}, ASSIGN = [], ADMIN = null, PUB = null, SEPX = {}; // PUB: 접근코드 없이 받는 공개 집계(통계 탭 전용)
 let view = [], page = 1, navIds = [], curIdx = -1;
 
 // ---------- API ----------
@@ -103,6 +103,7 @@ async function unlock(code, opts = {}) {
     d.summary = (d.summary || '').replace(/^[\s·•※■□○●▶\-–]+/, ''); d.headline = d.headline || '';
   }
   ITEM = Object.fromEntries(DATA.map(d => [d.id, d]));
+  try { SEPX = (await call('ypc_sepx')) || {}; } catch { SEPX = {}; } // 별도자료 실행 점검(관리자: 전체·점수 포함 / 심사위원: 배정 사례의 설명만)
   if (S.role === 'admin') ADMIN = await call('ypc_admin_state');
   try { const tk = await call('ypc_orig_token'); if (tk) store.set('ypc_gh', tk); } catch {} // 관리자가 등록한 공용 읽기 토큰 자동 적용
   if (!opts.keepImp || S.role !== 'judge') store.del('ypc_admin');
@@ -310,6 +311,24 @@ function renderStats() {
     v.append(el('div', { class: 'sect' }, el('h3', {}, '별도자료(_별도.zip) 통계 — 심사 대상 ' + N + '건 중 ' + Z + '건'),
       el('p', { class: 'sub' }, XS.note + ' 이 섹션의 막대는 별도자료가 있는 ' + Z + '건 기준입니다(누락 ' + X + '건 제외).'), el('div', { class: 'kpis' }, kpi(Z, '별도자료 첨부 사례'), kpi(XS.files.toLocaleString(), '압축 안 전체 파일'), kpi(XS.mb + 'MB', '압축 용량 합계'), kpi(pct(Z, N), '심사 대상 대비 첨부율')), Q));
   }
+  if (adm) sepxStats(v);
+}
+
+// 별도자료 실행 점검 통계(관리자): 숫자를 누르면 해당 사례만 필터된 목록으로 이동
+function sepxStats(v) {
+  const ids = Object.keys(SEPX).filter(i => SEPX[i].gl); if (!ids.length) return;
+  const rows = ids.map(i => SEPX[i]); const n = rows.length;
+  const cnt = (f, vals) => vals.map(g => [g, rows.filter(r => r[f] === g).length]);
+  const Q = el('div', { class: 'panels' });
+  Q.append(panel('연계성(본문과의 연결)', bars(cnt('gl', ['상', '중', '하']), n, l => jump('sepl', l))));
+  Q.append(panel('완성도', bars(cnt('gc', ['상', '중', '하']), n, l => jump('sepc', l))));
+  Q.append(panel('사용성', bars(cnt('gu', ['상', '중', '하']), n, l => jump('sepu', l))));
+  Q.append(panel('종합(세 항목 평균)', bars(cnt('go', ['상', '중', '하']), n, null)));
+  const ft = new Map(); for (const r of rows) for (const t of new Set((r.flags || []).map(f => f.t))) ft.set(t, (ft.get(t) || 0) + 1);
+  const fl = [...ft.entries()].sort((a, b) => b[1] - a[1]);
+  Q.append(panel('확인 필요 구분(건)', bars(fl, n, l => jump('sepf', l))));
+  v.append(el('div', { class: 'sect' }, el('h3', {}, '별도자료 실행 점검(AI 점검 보조) — ' + n + '건'),
+    el('p', { class: 'sub' }, '파일을 풀어 열고 HTML은 브라우저에서 입력·클릭해 확인한 결과입니다. 막대를 누르면 해당 사례 목록으로 이동합니다. 점수는 평가 점수가 아닌 확인 순서용 참고값입니다.'), Q));
 }
 
 // 평가 점수 통계 (관리자)
@@ -364,6 +383,10 @@ const CGROUPS = [
   { key: 'tech', label: '기술', get: d => d.tech },
   { key: 'vis', label: '도식·표 비중', get: d => visBands(d), order: VIS_ORDER },
   { key: 'sep', label: '별도자료', get: d => [d.sep ? '있음' : '없음'] },
+  { key: 'sepl', label: '별도 연계성(AI 점검)', get: d => SEPX[d.id] && SEPX[d.id].gl ? [SEPX[d.id].gl] : [], order: ['상', '중', '하'] },
+  { key: 'sepc', label: '별도 완성도(AI 점검)', get: d => SEPX[d.id] && SEPX[d.id].gc ? [SEPX[d.id].gc] : [], order: ['상', '중', '하'] },
+  { key: 'sepu', label: '별도 사용성(AI 점검)', get: d => SEPX[d.id] && SEPX[d.id].gu ? [SEPX[d.id].gu] : [], order: ['상', '중', '하'] },
+  { key: 'sepf', label: '별도 확인 필요(AI 점검)', get: d => SEPX[d.id] && SEPX[d.id].flags ? SEPX[d.id].flags.map(f => f.t) : [] },
   { key: 'fmt', label: '형식', get: d => [d.fmt || '?'] }
 ];
 let CF = mkFilter(CGROUPS, d => d.id + ' ' + d.title + ' ' + d.headline + ' ' + d.summary);
@@ -481,12 +504,27 @@ function showDetail(id) {
     el('dl', { class: 'kv' }, kv('군집', d.cluster_name), kv('연령(추정)', d.age ? d.age + '세 (' + d.age_band + ')' : '확인 불가'), kv('가구', d.household.join(', ') || '미분류'), kv('본문 분량', d.chars.toLocaleString() + '자'), kv('도식·표 비중', d.vis_pct == null ? '측정 불가(docx 외 형식)' : d.vis_pct + '%'), kv('별도자료', sepTxt), d.note ? kv('비고', d.note) : []),
     el('div', { class: 'openrow' }, el('button', { class: 'btn primary', onclick: () => openOriginal(d) }, '원본 보기'),
       el('button', { class: 'btn', onclick: () => navigator.clipboard && navigator.clipboard.writeText(d.id) }, '번호 복사')),
+    d.sep ? sepxBox(d) : null,
     d.sep ? sepBox(d) : null,
     el('p', { class: 'hint' }, '원본 보기: 비공개 레포(' + CFG.ORIG_REPO + ')에서 읽기 전용 토큰으로 직접 불러옵니다.'));
   dt.replaceChildren(el('div', { class: 'dgrid' }, info, S.role === 'judge' ? evalForm(d) : adminEvals(d)));
   $('#prev').disabled = curIdx <= 0; $('#next').disabled = curIdx < 0 || curIdx >= navIds.length - 1;
   $('#navpos').textContent = navIds.length > 1 ? (curIdx + 1) + ' / ' + navIds.length : '';
   window.scrollTo(0, 0);
+}
+// 별도자료 실행 점검: 파일을 열고(HTML은 브라우저에서 입력·클릭) 확인한 내용. 점수·확인 필요 표시는 관리자에게만 내려옴.
+function sepxBox(d) {
+  const x = SEPX[d.id]; if (!x) return null;
+  const kv = (k, v) => v ? [el('dt', {}, k), el('dd', {}, v)] : [];
+  const adm = S.role === 'admin';
+  const gr = (lab, g, sc) => g ? el('span', { class: 'tag ' + (g === '상' ? 'ok' : 'g'), title: sc + '점' }, lab + ' ' + g + ' (' + sc + ')') : null;
+  return el('div', { class: 'sepbox' }, el('h3', {}, '별도자료가 무엇인지 · 실제로 열어 확인한 내용'),
+    el('p', { class: 'about' }, x.about),
+    el('dl', { class: 'kv' }, kv('확인한 것', x.check), kv('한계·주의', x.limit), kv('구성', x.kind)),
+    adm ? el('div', {}, el('div', { class: 'tags' }, gr('연계성', x.gl, x.link), gr('완성도', x.gc, x.comp), gr('사용성', x.gu, x.use)),
+      x.flags && x.flags.length ? el('div', {}, el('div', { class: 'sep-h' }, '확인 필요'), x.flags.map(f => el('div', { class: 'cmd' }, '[' + f.t + '] ' + f.m))) : null,
+      el('dl', { class: 'kv' }, kv('본문 부록 기재', x.decl), kv('연계성 근거', x.lb), kv('완성도 근거', x.cb), kv('사용성 근거', x.ub), kv('보강 의견', x.rec))) : null,
+    el('p', { class: 'hint' }, 'HTML은 외부 네트워크를 막은 브라우저에서 열어 입력칸·버튼을 눌러 보았고, 코드·APK는 실행하지 않았습니다. 점수는 AI 점검 보조값이며 평가 점수가 아닙니다.'));
 }
 // 별도자료 상세: 비공개 레포의 sep_info.json(파일 구성·README를 읽어 만든 정적 설명, 코드는 실행하지 않음)
 let SEPINFO = null, sepPromise = null;
