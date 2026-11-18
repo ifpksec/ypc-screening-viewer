@@ -208,16 +208,16 @@ const kpi = (b, s, on) => el(on ? 'button' : 'div', { class: 'kpi', onclick: on 
 const panel = (title, nodes, wide) => el('div', { class: 'panel' + (wide ? ' wide' : '') }, el('h3', {}, title), nodes);
 // 통계·군집 탭: 공개 집계(PUB)만 사용한다. 관리자는 항목 클릭으로 사례 목록 이동 + 평가 통계가 추가된다.
 // ---------- 통계·군집 탭 ----------
-// 모든 막대 합계의 기준은 작업 폴더 전체(심사 대상 N + 누락 X). 한 사례가 하나에만 속하는 항목은 합계가 전체와 같고,
-// 한 사례가 여러 항목에 속할 수 있는 항목(가구·주제·AI·기술)은 "해당 없음"과 "누락" 행을 더해 사례 수 기준 합계를 안내한다.
+// 모든 막대 합계의 기준은 현재 폴더의 심사 대상 N(이전 폴더의 누락 기록은 집계하지 않음). 한 사례가 하나에만 속하는 항목은 합계가 N과 같고,
+// 한 사례가 여러 항목에 속할 수 있는 항목(가구·주제·AI·기술)은 "해당 없음" 행을 더해 사례 수 기준 합계를 안내한다.
 const XL = '누락(작업 폴더 제외)';
 function statSets() {
-  const P = PUB, N = P.N, X = P.nExcl || 0, T = N + X;
-  const withX = (e, none) => [...e, ...(none != null ? [['해당 없음', none]] : []), [XL, X]];
+  const P = PUB, N = P.N, X = 0, T = N; // 누락(이전 폴더 02_제외)은 현재 폴더에 없으므로 집계하지 않는다
+  const withX = (e, none) => [...e, ...(none != null ? [['해당 없음', none]] : [])];
   const byAge = [...P.age].sort((a, b) => AGE_ORDER.indexOf(a[0]) - AGE_ORDER.indexOf(b[0]));
   const bins = P.bins.map(([b, n]) => [b >= 7 ? '35,000자 이상' : (b * 5000).toLocaleString() + '–' + ((b + 1) * 5000).toLocaleString() + '자', n]);
   const hhNone = (P.hh.find(r => r[0] === '미분류') || [0, 0])[1];
-  const note = (none, has) => '복수 해당 가능 — 막대 합계는 사례 수와 다릅니다. 사례 수 기준: 해당 있음 ' + has + ' + 해당 없음 ' + none + ' + 누락 ' + X + ' = ' + T;
+  const note = (none, has) => '복수 해당 가능 — 막대 합계는 사례 수와 다릅니다. 사례 수 기준: 해당 있음 ' + has + ' + 해당 없음 ' + none + ' = ' + N;
   return { N, X, T,
     type: { rows: withX([['B안', P.nB], ['A안', P.nA]]) },
     age: { rows: withX(byAge) }, bins: { rows: withX(bins) }, vis: { rows: withX(P.vis) },
@@ -237,10 +237,10 @@ function statsMarkdown() {
   const dist = (e, tot) => tbl(['항목', '건수', '비율'], e.map(([l, n]) => [l, n, Math.round(n / tot * 100) + '%']));
   const H = t => NL + t + NL + NL;
   const sumRow = rows => '합계(단일 소속 항목) ' + rows.reduce((s, r) => s + r[1], 0) + NL;
-  let m = '# YPC2026 1차 스크리닝 — 통계·군집' + NL + NL + '작성일 ' + localDate() + ' · 작업 폴더 전체 ' + T + '건 = 심사 대상 ' + N + ' + 누락 ' + S3.X + ' (집계만 포함, 사례별 내용 없음)' + NL;
-  m += H('## 1. 개요') + tbl(['지표', '값'], [['작업 폴더 전체', T], ['심사 대상', N], ['누락(작업 폴더 02_제외, 사례 목록에 없음)', S3.X + ' (' + (P.exclBy || []).map(r => r[0] + ' ' + r[1]).join(', ') + ')'], ['B안 / A안(심사 대상)', P.nB + ' / ' + P.nA], ['별도자료 첨부(심사 대상)', P.nSep], ['평균 본문 글자수', Number(P.avgChars).toLocaleString()], ['기술(Python·웹앱 등) 언급', P.nTech], ['docx 외 형식', P.nNonDocx]]);
+  let m = '# YPC2026 1차 스크리닝 — 통계·군집' + NL + NL + '작성일 ' + localDate() + ' · 심사 대상 ' + N + '건 (집계만 포함, 사례별 내용 없음)' + NL;
+  m += H('## 1. 개요') + tbl(['지표', '값'], [['심사 대상', N], ['B안 / A안(심사 대상)', P.nB + ' / ' + P.nA], ['별도자료 첨부(심사 대상)', P.nSep], ['평균 본문 글자수', Number(P.avgChars).toLocaleString()], ['기술(Python·웹앱 등) 언급', P.nTech], ['docx 외 형식', P.nNonDocx]]);
   m += H('## 2. 유형 (A/B안)') + dist(S3.type.rows, T) + sumRow(S3.type.rows);
-  m += H('## 3. 주제 군집 (TF-IDF + KMeans)') + dist([...S3.cluster, [XL, S3.X]], T) + sumRow([...S3.cluster, [XL, S3.X]]);
+  m += H('## 3. 주제 군집 (TF-IDF + KMeans)') + dist(S3.cluster, T) + sumRow(S3.cluster);
   m += NL + '> 군집 간 어휘 중복이 커서 경계 사례가 많습니다(실루엣 약 0.08). 대표 어휘는 앱 화면의 군집 설명을 참고하세요.' + NL;
   m += H('## 4. 연령대 (본문 첫 언급 기준)') + dist(S3.age.rows, T) + sumRow(S3.age.rows);
   for (const [t, k, lab] of [['## 5. 가구 유형', 'hh'], ['## 6. 다룬 주제 (3회 이상 언급)', 'topic'], ['## 7. AI 도구 언급', 'ai'], ['## 8. 기술·분석 기법', 'tech']])
@@ -251,7 +251,7 @@ function statsMarkdown() {
   const names = S3.cluster.map(c => c[0]);
   const colSum = a => names.reduce((s, n) => s + cellCA(n, a), 0);
   m += H('## 12. 군집 × 연령대') + tbl(['군집', ...AGE_ORDER, '합계'], [...names.map(n => [n, ...AGE_ORDER.map(a => cellCA(n, a)), AGE_ORDER.reduce((s, a) => s + cellCA(n, a), 0)]),
-    ['심사 대상 합계', ...AGE_ORDER.map(colSum), N], [XL, ...AGE_ORDER.map(() => '·'), S3.X], ['작업 폴더 전체', ...AGE_ORDER.map(() => '·'), T]]);
+    ['심사 대상 합계', ...AGE_ORDER.map(colSum), N]]);
   if (X) {
     m += H('## 13. 별도자료(_별도.zip) 통계 — 심사 대상 ' + N + '건 중 ' + X.zips + '건') + '> ' + X.note + NL + NL + tbl(['지표', '값'], [['별도자료 첨부 사례', X.zips], ['압축 안 전체 파일', X.files.toLocaleString()], ['압축 용량 합계', X.mb + 'MB'], ['심사 대상 대비 첨부율', Math.round(X.zips / N * 100) + '%']]);
     m += H('### 13-1. 추정 용도') + dist(X.domain, X.zips) + sumRow(X.domain) + H('### 13-2. 포함된 기능·특징 (중복 가능)') + dist(X.flags, X.zips)
@@ -273,14 +273,13 @@ function renderStats() {
   const withNote = (title, set, onc) => panel(title, [...bars(set.rows, T, onc), set.note ? el('p', { class: 'hint' }, set.note) : null]);
   v.append(el('div', { class: 'openrow', style: 'margin-bottom:12px' }, el('button', { class: 'btn small', onclick: downloadStatsMd }, '마크다운(.md) 다운로드')));
   v.append(el('div', { class: 'kpis' },
-    kpi(T, '작업 폴더 전체'), kpi(N, '심사 대상', adm ? () => jumpMany({}) : null), kpi(X, '누락(제외)'), kpi(PUB.nB + ' / ' + PUB.nA, 'B안 / A안(심사 대상)'), kpi(PUB.nSep, '별도자료 첨부', adm ? () => jump('sep', '있음') : null),
+    kpi(N, '심사 대상', adm ? () => jumpMany({}) : null), kpi(PUB.nB + ' / ' + PUB.nA, 'B안 / A안(심사 대상)'), kpi(PUB.nSep, '별도자료 첨부', adm ? () => jump('sep', '있음') : null),
     kpi(Number(PUB.avgChars).toLocaleString(), '평균 본문 글자수'), kpi(PUB.nTech, '기술(Python·웹앱 등) 언급', adm ? () => jumpMany({ tech: [...new Set(DATA.flatMap(d => d.tech))] }) : null), kpi(PUB.nNonDocx, 'docx 외 형식', adm ? () => jumpMany({ fmt: [...new Set(DATA.map(d => d.fmt).filter(f => f && f !== 'docx'))] }) : null)));
-  v.append(el('p', { class: 'hint', style: 'margin:-4px 0 14px' }, '작업 폴더 전체 ' + T + '건 = 심사 대상 ' + N + ' + 누락 ' + X + '(' + (PUB.exclBy || []).map(r => r[0] + ' ' + r[1]).join(', ') + '). 단일 소속 항목의 막대 합계는 ' + T + '이며, 비율도 ' + T + '건 기준입니다.'));
+  v.append(el('p', { class: 'hint', style: 'margin:-4px 0 14px' }, '심사 대상 ' + N + '건 기준입니다. 단일 소속 항목의 막대 합계는 ' + N + '이며, 비율도 ' + N + '건 기준입니다.'));
   v.append(el('div', { class: 'panel wide', style: 'margin-bottom:16px' }, el('h3', {}, '주제 군집 (TF-IDF + KMeans' + (adm ? ', 클릭하면 해당 사례 목록)' : ')')),
     el('div', { class: 'cl' }, [...PUB.cluster.map(([name, n]) => el(adm ? 'button' : 'div', { class: 'cl-item', style: adm ? null : 'cursor:default', onclick: adm ? () => jump('cluster', name) : null },
-      el('span', { class: 'cl-n' }, n), el('b', {}, name), el('span', { class: 'muted' }, Math.round(n / T * 100) + '%'), el('div', { class: 'kw' }, CL[name] || ''))),
-      el('div', { class: 'cl-item', style: 'cursor:default;opacity:.85' }, el('span', { class: 'cl-n' }, X), el('b', {}, XL), el('span', { class: 'muted' }, Math.round(X / T * 100) + '%'), el('div', { class: 'kw' }, '중복 제출·제출 취소·신청 정보 무효로 사례 목록에서 빠진 사례'))]),
-    el('p', { class: 'hint' }, '군집 간 어휘 중복이 커서 경계 사례가 많습니다(실루엣 약 0.08). 비중은 경향 파악용으로 보세요. 군집 합계 ' + (N + X) + ' = 심사 대상 ' + N + ' + 누락 ' + X + '.')));
+      el('span', { class: 'cl-n' }, n), el('b', {}, name), el('span', { class: 'muted' }, Math.round(n / T * 100) + '%'), el('div', { class: 'kw' }, CL[name] || '')))]),
+    el('p', { class: 'hint' }, '군집 간 어휘 중복이 커서 경계 사례가 많습니다(실루엣 약 0.08). 비중은 경향 파악용으로 보세요. 군집 합계 ' + N + ' = 심사 대상 ' + N + '.')));
   const P = el('div', { class: 'panels' });
   P.append(panel('유형 (A/B안)', bars(S3.type.rows, T, J('type'))));
   P.append(panel('연령대 (본문 첫 언급 기준)', bars(S3.age.rows, T, J('age'))));
@@ -296,8 +295,6 @@ function renderStats() {
   const cellBtn = (n, f) => adm && n ? el('button', { class: 'linkbtn', title: '사례 목록에서 보기', onclick: () => jumpMany(f) }, n) : (n || '·');
   for (const nm of names) tbl.append(el('tr', {}, el('td', {}, nm), AGE_ORDER.map(a => el('td', { class: 'n' }, cellBtn(cellCA(nm, a), { cluster: [nm], age: [a] }))), el('td', { class: 'n' }, cellBtn(AGE_ORDER.reduce((s, a) => s + cellCA(nm, a), 0), { cluster: [nm] }))));
   tbl.append(el('tr', { style: 'font-weight:600' }, el('td', {}, '심사 대상 합계'), AGE_ORDER.map(a => el('td', { class: 'n' }, cellBtn(names.reduce((s, n) => s + cellCA(n, a), 0), { age: [a] }))), el('td', { class: 'n' }, cellBtn(N, {}))));
-  tbl.append(el('tr', {}, el('td', {}, XL), AGE_ORDER.map(() => el('td', { class: 'n' }, '·')), el('td', { class: 'n' }, X)));
-  tbl.append(el('tr', { style: 'font-weight:600' }, el('td', {}, '작업 폴더 전체'), AGE_ORDER.map(() => el('td', { class: 'n' }, '·')), el('td', { class: 'n' }, T)));
   P.append(el('div', { class: 'panel wide scroll' }, el('h3', {}, '군집 × 연령대'), tbl));
   v.append(P);
   const XS = PUB.sep;
@@ -311,7 +308,7 @@ function renderStats() {
     Q.append(panel('필요한 외부 패키지(Python import, 중복 가능)', bars(XS.pkgs, Z, adm ? l => jump('seppkg', l) : null)));
     Q.append(panel('군집별 별도자료 첨부 건수', bars(PUB.clusterSep, Z, adm ? l => jumpMany({ cluster: [l], sep: ['있음'] }) : null)));
     v.append(el('div', { class: 'sect' }, el('h3', {}, '별도자료(_별도.zip) 통계 — 심사 대상 ' + N + '건 중 ' + Z + '건'),
-      el('p', { class: 'sub' }, XS.note + ' 이 섹션의 막대는 별도자료가 있는 ' + Z + '건 기준입니다(누락 ' + X + '건 제외).'), el('div', { class: 'kpis' }, kpi(Z, '별도자료 첨부 사례', adm ? () => jump('sep', '있음') : null), kpi(XS.files.toLocaleString(), '압축 안 전체 파일'), kpi(XS.mb + 'MB', '압축 용량 합계'), kpi(pct(Z, N), '심사 대상 대비 첨부율', adm ? () => jump('sep', '있음') : null)), Q));
+      el('p', { class: 'sub' }, XS.note + ' 이 섹션의 막대는 별도자료가 있는 ' + Z + '건 기준입니다.'), el('div', { class: 'kpis' }, kpi(Z, '별도자료 첨부 사례', adm ? () => jump('sep', '있음') : null), kpi(XS.files.toLocaleString(), '압축 안 전체 파일'), kpi(XS.mb + 'MB', '압축 용량 합계'), kpi(pct(Z, N), '심사 대상 대비 첨부율', adm ? () => jump('sep', '있음') : null)), Q));
   }
   if (adm) { manipStats(v); sepxStats(v); }
 }
@@ -456,7 +453,6 @@ $('#q').addEventListener('input', e => { CF.q = e.target.value.trim(); page = 1;
 $('#sort').addEventListener('change', e => { cardSort = e.target.value; page = 1; applyCards(); });
 $('#reset').addEventListener('click', () => { CF.reset(); $('#q').value = ''; page = 1; applyCards(); });
 
-// ---------- 누락 사례 탭 ----------
 
 // ---------- 심사위원 탭 ----------
 const stText = r => r.status === 'done' ? '평가 완료' : '평가 대기';
