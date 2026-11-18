@@ -39,7 +39,7 @@ const CL = {
 const AGE_ORDER = ['20대', '30대', '40대', '50대', '60대 이상', '연령미상'];
 const PAGE = 12;
 const S = { code: null, role: null, judge: null, settings: null };
-let DATA = [], ITEM = {}, ASSIGN = [], ADMIN = null, PUB = null, SEPX = {}, MANIP = {}, LINKS = {}; // PUB: 접근코드 없이 받는 공개 집계(통계 탭 전용)
+let DATA = [], ITEM = {}, ASSIGN = [], ADMIN = null, PUB = null, SEPX = {}, MANIP = {}, LINKS = {}, CRIT = {}; // PUB: 접근코드 없이 받는 공개 집계(통계 탭 전용)
 let view = [], page = 1, navIds = [], curIdx = -1;
 
 // ---------- API ----------
@@ -104,6 +104,7 @@ async function unlock(code, opts = {}) {
   }
   ITEM = Object.fromEntries(DATA.map(d => [d.id, d]));
   try { MANIP = (await call('ypc_manip')) || {}; } catch { MANIP = {}; } // 평가 유도·단정 표현 점검(관리자 전용)
+  try { CRIT = (await call('ypc_crit')) || {}; } catch { CRIT = {}; } // 심사기준(예심 5대 지표) 충족도 AI 사전 판정(관리자 전용)
   try { LINKS = (await call('ypc_links')) || {}; } catch { LINKS = {}; } // 링크로 제출한 별도 제출물 안내
   try { SEPX = (await call('ypc_sepx')) || {}; } catch { SEPX = {}; } // 별도자료 실행 점검(관리자: 전체·점수 포함 / 심사위원: 배정 사례의 설명만)
   if (S.role === 'admin') ADMIN = await call('ypc_admin_state');
@@ -516,6 +517,7 @@ function showDetail(id) {
   const dt = $('#detail'); const info = el('div', {},
     el('div', { class: 'id muted' }, d.id + ' · ' + (d.type || '?') + '안 · ' + d.fmt),
     el('h2', {}, d.title), d.headline ? el('div', { class: 'hl', style: 'color:var(--pr)' }, d.headline) : null,
+    critBox(d),
     cardBox(d),
     el('div', { class: 'sum' }, el('div', { class: 'sep-h' }, '작성자 서두(원문 발췌)'), d.summary || '(요약 없음)'),
     el('div', { class: 'tags' }, d.topics.map(t => el('span', { class: 'tag' }, t)), d.ai.map(t => el('span', { class: 'tag g' }, t)), d.tech.map(t => el('span', { class: 'tag g' }, t))),
@@ -554,6 +556,20 @@ function manipBox(d) {
     labs.map(l => el('div', {}, el('div', { class: 'sep-h' }, l + ' · ' + m.types[l].n + '곳'),
       m.types[l].sn.map(x => el('div', { class: 'cmd' }, (x.p != null ? '[본문 ' + x.p + '% 지점] ' : '') + x.t)))),
     el('p', { class: 'hint' }, '정규식으로 뽑은 후보를 읽고 가려낸 문장으로, 위반 판정이 아니라 위원이 확인할 단서입니다. (참고) 표시는 부록의 AI 프롬프트 기록 등 정상 범위입니다. 사례당 유형별 최대 2문장만 보여 줍니다.'));
+}
+// 심사기준 충족도: 예심 5대 평가 지표를 상·중·하로 표시하고, 공고된 판정 규칙(②·③ 모두 상 + 상 3개 이상 + 하 없음 = 상 / ②나 ③이 하이거나 하 2개 이상 = 하 / 그 외 중)으로 종합한다.
+const CRIT_F = [['g1', '① 고객·목표 구체성'], ['g2', '② 수치 기반 진단'], ['g3', '③ 진단-해법 연결'], ['g4', '④ 프롬프트 기록'], ['g5', '⑤ 검증의 실체']];
+function critOverall(c) { const g = ['g1', 'g2', 'g3', 'g4', 'g5'].map(k => c[k]); const up = g.filter(x => x === '상').length, dn = g.filter(x => x === '하').length;
+  return c.g2 === '상' && c.g3 === '상' && up >= 3 && dn === 0 ? '상' : (c.g2 === '하' || c.g3 === '하' || dn >= 2) ? '하' : '중'; }
+function critBox(d) {
+  const c = CRIT[d.id]; if (!c || S.role !== 'admin') return null;
+  const chip = (lab, g, tip) => el('span', { class: 'cchip ' + (g === '상' ? 'hi' : g === '하' ? 'lo' : 'mid'), title: tip || '' }, el('b', {}, lab), ' ', g);
+  const ov = critOverall(c);
+  return el('div', { class: 'critbox' }, el('div', { class: 'sep-h' }, '심사기준 충족도 (예심 5대 지표 · AI 사전 판정)'),
+    el('div', { class: 'crow' }, el('span', { class: 'cchip big ' + (ov === '상' ? 'hi' : ov === '하' ? 'lo' : 'mid') }, el('b', {}, '종합'), ' ', ov),
+      CRIT_F.map(([k, lab]) => chip(lab, c[k], (c.r && c.r[k] ? c.r[k] : '') + (c.q && c.q[k] ? '\n본문: ' + c.q[k] : '') + ((c.u || []).includes(k) ? '\n(본문 일부가 잘려 보이는 범위로 판정)' : '') + ((c.cap || []).includes(k) ? '\n(상 조건 키워드 점검에서 중으로 낮춤)' : '')))),
+    el('dl', { class: 'kv' }, CRIT_F.flatMap(([k, lab]) => [el('dt', {}, lab), el('dd', {}, c.r && c.r[k] ? c.r[k] + ((c.u || []).includes(k) ? ' (일부 확인 불가)' : '') : '')])),
+    el('p', { class: 'hint' }, '공고된 심사 기준표를 AI가 본문(부록 포함)에 적용한 사전 판정으로, 위원 판정을 대신하지 않는 참고값입니다. 지표에 마우스를 올리면 이유와 근거 문장이 보입니다. 종합은 공고된 규칙으로 계산했습니다. 공고 조건을 문자 그대로 적용한 값이라 상 비율이 높게 나옵니다(상대 비교와 15% 상한은 위원이 판단). AI 판정 후 상 조건 키워드가 본문에 없으면 중으로 낮추었습니다.'));
 }
 // 본문 요약 카드: 모든 사례를 같은 5개 항목으로 정리(고객 상황·핵심 과제·제안 방안·근거·AI 활용). 항목마다 본문 원문 인용을 함께 보관한다.
 const CARD_F = [['who', '고객 상황'], ['issue', '핵심 과제'], ['plan', '제안 방안'], ['evid', '근거·산출물'], ['ai', 'AI 활용']];
