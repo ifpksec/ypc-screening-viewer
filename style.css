@@ -110,3 +110,6 @@ textarea{font:inherit;color:var(--tx);background:var(--card);border:1px solid va
 .sepbox .cmd{background:var(--bg);border:1px solid var(--bd);border-radius:6px;padding:3px 8px;margin:3px 0;font:12.5px/1.5 ui-monospace,Consolas,monospace;overflow-x:auto;white-space:pre-wrap;word-break:break-all}
 .sepbox .tbl td{font-size:12.5px;word-break:break-all}
 .warnbox{background:#fff4e5;border:1px solid #f0b86e;color:#7a4a00;border-radius:8px;padding:8px 12px;margin:0 0 12px;font-size:13.5px}@media (prefers-color-scheme:dark){.warnbox{background:#3a2a10;border-color:#8a5a1a;color:#f3d9a4}}
+
+button.kpi{font:inherit;color:inherit;text-align:left;cursor:pointer}button.kpi:hover{border-color:var(--pr)}
+.linkbtn{font:inherit;color:var(--pr);background:none;border:0;padding:0;cursor:pointer;text-decoration:underline}

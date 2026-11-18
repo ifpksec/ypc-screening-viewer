@@ -197,12 +197,13 @@ async function show(tab) {
 // ---------- 통계 ----------
 function bars(entries, total, onclick) {
   const max = Math.max(1, ...entries.map(e => e[1]));
-  return entries.map(([label, n]) => el(onclick ? 'button' : 'div', { class: 'bar', title: onclick ? '사례 목록에서 보기' : null, style: onclick ? null : 'cursor:default', onclick: onclick ? () => onclick(label) : null },
+  return entries.map(([label, n]) => { const on = onclick && label !== XL; return el(on ? 'button' : 'div', { class: 'bar', title: on ? '사례 목록에서 보기' : null, style: on ? null : 'cursor:default', onclick: on ? () => onclick(label) : null },
     el('span', { class: 'lb' }, label), el('span', { class: 'tr' }, el('span', { class: 'fl', style: 'width:' + (n / max * 100) + '%' })),
-    el('span', { class: 'nv' }, n + ' (' + Math.round(n / total * 100) + '%)')));
+    el('span', { class: 'nv' }, n + ' (' + Math.round(n / total * 100) + '%)')); });
 }
-function jump(key, label) { CF.reset(); $('#q').value = ''; CF.sel[key] = new Set([label]); page = 1; applyCards(); go('cards'); }
-const kpi = (b, s) => el('div', { class: 'kpi' }, el('b', {}, b), el('span', {}, s));
+function jumpMany(obj) { CF.reset(); $('#q').value = ''; for (const [k, v] of Object.entries(obj)) CF.sel[k] = new Set(v); page = 1; applyCards(); go('cards'); }
+function jump(key, label) { jumpMany({ [key]: [label] }); }
+const kpi = (b, s, on) => el(on ? 'button' : 'div', { class: 'kpi', onclick: on || null, title: on ? '사례 목록에서 보기' : null }, el('b', {}, b), el('span', {}, s));
 const panel = (title, nodes, wide) => el('div', { class: 'panel' + (wide ? ' wide' : '') }, el('h3', {}, title), nodes);
 // 통계·군집 탭: 공개 집계(PUB)만 사용한다. 관리자는 항목 클릭으로 사례 목록 이동 + 평가 통계가 추가된다.
 // ---------- 통계·군집 탭 ----------
@@ -267,33 +268,33 @@ function downloadStatsMd() {
 function renderStats() {
   const v = $('#view-stats'); v.replaceChildren(); if (!PUB) return;
   const adm = S.role === 'admin', S3 = statSets(), N = S3.N, T = S3.T, X = S3.X;
-  const J = key => adm ? l => { if (l !== XL && l !== '해당 없음') jump(key, l); } : null;
+  const J = key => adm ? l => { if (l !== XL) jump(key, l); } : null;
   const withNote = (title, set, onc) => panel(title, [...bars(set.rows, T, onc), set.note ? el('p', { class: 'hint' }, set.note) : null]);
   v.append(el('div', { class: 'openrow', style: 'margin-bottom:12px' }, el('button', { class: 'btn small', onclick: downloadStatsMd }, '마크다운(.md) 다운로드')));
   v.append(el('div', { class: 'kpis' },
-    kpi(T, '작업 폴더 전체'), kpi(N, '심사 대상'), kpi(X, '누락(제외)'), kpi(PUB.nB + ' / ' + PUB.nA, 'B안 / A안(심사 대상)'), kpi(PUB.nSep, '별도자료 첨부'),
-    kpi(Number(PUB.avgChars).toLocaleString(), '평균 본문 글자수'), kpi(PUB.nTech, '기술(Python·웹앱 등) 언급'), kpi(PUB.nNonDocx, 'docx 외 형식')));
+    kpi(T, '작업 폴더 전체'), kpi(N, '심사 대상', adm ? () => jumpMany({}) : null), kpi(X, '누락(제외)'), kpi(PUB.nB + ' / ' + PUB.nA, 'B안 / A안(심사 대상)'), kpi(PUB.nSep, '별도자료 첨부', adm ? () => jump('sep', '있음') : null),
+    kpi(Number(PUB.avgChars).toLocaleString(), '평균 본문 글자수'), kpi(PUB.nTech, '기술(Python·웹앱 등) 언급', adm ? () => jumpMany({ tech: [...new Set(DATA.flatMap(d => d.tech))] }) : null), kpi(PUB.nNonDocx, 'docx 외 형식', adm ? () => jumpMany({ fmt: [...new Set(DATA.map(d => d.fmt).filter(f => f && f !== 'docx'))] }) : null)));
   v.append(el('p', { class: 'hint', style: 'margin:-4px 0 14px' }, '작업 폴더 전체 ' + T + '건 = 심사 대상 ' + N + ' + 누락 ' + X + '(' + (PUB.exclBy || []).map(r => r[0] + ' ' + r[1]).join(', ') + '). 단일 소속 항목의 막대 합계는 ' + T + '이며, 비율도 ' + T + '건 기준입니다.'));
   v.append(el('div', { class: 'panel wide', style: 'margin-bottom:16px' }, el('h3', {}, '주제 군집 (TF-IDF + KMeans' + (adm ? ', 클릭하면 해당 사례 목록)' : ')')),
     el('div', { class: 'cl' }, [...PUB.cluster.map(([name, n]) => el(adm ? 'button' : 'div', { class: 'cl-item', style: adm ? null : 'cursor:default', onclick: adm ? () => jump('cluster', name) : null },
       el('span', { class: 'cl-n' }, n), el('b', {}, name), el('span', { class: 'muted' }, Math.round(n / T * 100) + '%'), el('div', { class: 'kw' }, CL[name] || ''))),
       el('div', { class: 'cl-item', style: 'cursor:default;opacity:.85' }, el('span', { class: 'cl-n' }, X), el('b', {}, XL), el('span', { class: 'muted' }, Math.round(X / T * 100) + '%'), el('div', { class: 'kw' }, '중복 제출·제출 취소·신청 정보 무효로 사례 목록에서 빠진 사례'))]),
     el('p', { class: 'hint' }, '군집 간 어휘 중복이 커서 경계 사례가 많습니다(실루엣 약 0.08). 비중은 경향 파악용으로 보세요. 군집 합계 ' + (N + X) + ' = 심사 대상 ' + N + ' + 누락 ' + X + '.')));
-  const GAPJ = { '연령 미상': ['age', '연령미상'], '가구 유형 미분류': ['hh', '미분류'], '군집: 일반 서술형(주제 미분화)': ['cluster', '일반 서술형(주제 미분화)'] };
   const P = el('div', { class: 'panels' });
-  P.append(panel('유형 (A/B안)', bars(S3.type.rows, T, null)));
+  P.append(panel('유형 (A/B안)', bars(S3.type.rows, T, J('type'))));
   P.append(panel('연령대 (본문 첫 언급 기준)', bars(S3.age.rows, T, J('age'))));
   P.append(withNote('가구 유형', S3.hh, J('hh')));
   P.append(withNote('다룬 주제 (3회 이상 언급)', S3.topic, J('topic')));
   P.append(withNote('AI 도구 언급', S3.ai, J('ai')));
   P.append(withNote('기술·분석 기법', S3.tech, J('tech')));
-  P.append(panel('도식·표 비중 (본문 docx 기준)', bars(S3.vis.rows, T, adm ? l => { if (l === '80% 이상' || l === '측정 불가(docx 외)') jump('vis', l); } : null)));
-  P.append(panel('본문 분량 분포', bars(S3.bins.rows, T, null)));
-  P.append(panel('미상·미분류·결측 현황 (항목별 독립 집계)', [...bars(PUB.gaps, T, adm ? l => { const g = GAPJ[l]; if (g) jump(g[0], g[1]); } : null), el('p', { class: 'hint' }, '서로 겹칠 수 있어 합계는 의미가 없습니다.')]));
+  P.append(panel('도식·표 비중 (본문 docx 기준)', bars(S3.vis.rows, T, J('vis'))));
+  P.append(panel('본문 분량 분포', bars(S3.bins.rows, T, J('chars'))));
+  P.append(panel('미상·미분류·결측 현황 (항목별 독립 집계)', [...bars(PUB.gaps, T, J('gap')), el('p', { class: 'hint' }, '서로 겹칠 수 있어 합계는 의미가 없습니다.')]));
   const names = PUB.cluster.map(c => c[0]); const tbl = el('table', { class: 'tbl' });
   tbl.append(el('tr', {}, el('th', {}, '군집'), AGE_ORDER.map(a => el('th', { class: 'n' }, a)), el('th', { class: 'n' }, '합계')));
-  for (const nm of names) tbl.append(el('tr', {}, el('td', {}, nm), AGE_ORDER.map(a => el('td', { class: 'n' }, cellCA(nm, a) || '·')), el('td', { class: 'n' }, AGE_ORDER.reduce((s, a) => s + cellCA(nm, a), 0))));
-  tbl.append(el('tr', { style: 'font-weight:600' }, el('td', {}, '심사 대상 합계'), AGE_ORDER.map(a => el('td', { class: 'n' }, names.reduce((s, n) => s + cellCA(n, a), 0))), el('td', { class: 'n' }, N)));
+  const cellBtn = (n, f) => adm && n ? el('button', { class: 'linkbtn', title: '사례 목록에서 보기', onclick: () => jumpMany(f) }, n) : (n || '·');
+  for (const nm of names) tbl.append(el('tr', {}, el('td', {}, nm), AGE_ORDER.map(a => el('td', { class: 'n' }, cellBtn(cellCA(nm, a), { cluster: [nm], age: [a] }))), el('td', { class: 'n' }, cellBtn(AGE_ORDER.reduce((s, a) => s + cellCA(nm, a), 0), { cluster: [nm] }))));
+  tbl.append(el('tr', { style: 'font-weight:600' }, el('td', {}, '심사 대상 합계'), AGE_ORDER.map(a => el('td', { class: 'n' }, cellBtn(names.reduce((s, n) => s + cellCA(n, a), 0), { age: [a] }))), el('td', { class: 'n' }, cellBtn(N, {}))));
   tbl.append(el('tr', {}, el('td', {}, XL), AGE_ORDER.map(() => el('td', { class: 'n' }, '·')), el('td', { class: 'n' }, X)));
   tbl.append(el('tr', { style: 'font-weight:600' }, el('td', {}, '작업 폴더 전체'), AGE_ORDER.map(() => el('td', { class: 'n' }, '·')), el('td', { class: 'n' }, T)));
   P.append(el('div', { class: 'panel wide scroll' }, el('h3', {}, '군집 × 연령대'), tbl));
@@ -305,11 +306,11 @@ function renderStats() {
     Q.append(panel('포함된 기능·특징 (중복 가능)', bars(XS.flags, Z, null)));
     Q.append(panel('실행 방식(파일 구성 기준)', bars(XS.run, Z, null)));
     Q.append(panel('파일 구성', bars(XS.kind, Z, null)));
-    Q.append(panel('압축 안 파일 수', bars(XS.size, Z, null)));
+    Q.append(panel('압축 안 파일 수', bars(XS.size, Z, adm ? l => jump('sepsize', l) : null)));
     Q.append(panel('필요한 외부 패키지(Python import, 중복 가능)', bars(XS.pkgs, Z, null)));
-    Q.append(panel('군집별 별도자료 첨부 건수', bars(PUB.clusterSep, Z, null)));
+    Q.append(panel('군집별 별도자료 첨부 건수', bars(PUB.clusterSep, Z, adm ? l => jumpMany({ cluster: [l], sep: ['있음'] }) : null)));
     v.append(el('div', { class: 'sect' }, el('h3', {}, '별도자료(_별도.zip) 통계 — 심사 대상 ' + N + '건 중 ' + Z + '건'),
-      el('p', { class: 'sub' }, XS.note + ' 이 섹션의 막대는 별도자료가 있는 ' + Z + '건 기준입니다(누락 ' + X + '건 제외).'), el('div', { class: 'kpis' }, kpi(Z, '별도자료 첨부 사례'), kpi(XS.files.toLocaleString(), '압축 안 전체 파일'), kpi(XS.mb + 'MB', '압축 용량 합계'), kpi(pct(Z, N), '심사 대상 대비 첨부율')), Q));
+      el('p', { class: 'sub' }, XS.note + ' 이 섹션의 막대는 별도자료가 있는 ' + Z + '건 기준입니다(누락 ' + X + '건 제외).'), el('div', { class: 'kpis' }, kpi(Z, '별도자료 첨부 사례', adm ? () => jump('sep', '있음') : null), kpi(XS.files.toLocaleString(), '압축 안 전체 파일'), kpi(XS.mb + 'MB', '압축 용량 합계'), kpi(pct(Z, N), '심사 대상 대비 첨부율', adm ? () => jump('sep', '있음') : null)), Q));
   }
   if (adm) sepxStats(v);
 }
@@ -323,7 +324,7 @@ function sepxStats(v) {
   Q.append(panel('연계성(본문과의 연결)', bars(cnt('gl', ['상', '중', '하']), n, l => jump('sepl', l))));
   Q.append(panel('완성도', bars(cnt('gc', ['상', '중', '하']), n, l => jump('sepc', l))));
   Q.append(panel('사용성', bars(cnt('gu', ['상', '중', '하']), n, l => jump('sepu', l))));
-  Q.append(panel('종합(세 항목 평균)', bars(cnt('go', ['상', '중', '하']), n, null)));
+  Q.append(panel('종합(세 항목 평균)', bars(cnt('go', ['상', '중', '하']), n, l => jump('sepo', l))));
   const ft = new Map(); for (const r of rows) for (const t of new Set((r.flags || []).map(f => f.t))) ft.set(t, (ft.get(t) || 0) + 1);
   const fl = [...ft.entries()].sort((a, b) => b[1] - a[1]);
   Q.append(panel('확인 필요 구분(건)', bars(fl, n, l => jump('sepf', l))));
@@ -371,21 +372,32 @@ function renderEvalStats(v) {
 
 // ---------- 사례 목록 ----------
 // 도식·표 비중: 본문 docx에서 표 안 글자 + 텍스트상자·도형 글자 + 그림 면적(쪽 면적=1,800자로 환산)이 전체에서 차지하는 비율(%)
-const VIS_ORDER = ['40% 이상', '80% 이상', '40% 미만', '측정 불가(docx 외)'];
-const visBands = d => d.vis_pct == null ? ['측정 불가(docx 외)'] : d.vis_pct < 40 ? ['40% 미만'] : d.vis_pct >= 80 ? ['40% 이상', '80% 이상'] : ['40% 이상'];
+const VIS_ORDER = ['40% 이상', '80% 이상', '40~79%', '40% 미만', '측정 불가(docx 외)'];
+const visBands = d => d.vis_pct == null ? ['측정 불가(docx 외)'] : d.vis_pct < 40 ? ['40% 미만'] : d.vis_pct >= 80 ? ['40% 이상', '80% 이상'] : ['40% 이상', '40~79%'];
+const charBinLabel = c => { const b = Math.min(7, Math.floor((c || 0) / 5000)); return b >= 7 ? '35,000자 이상' : (b * 5000).toLocaleString() + '–' + ((b + 1) * 5000).toLocaleString() + '자'; };
+const CHAR_BINS = [0, 1, 2, 3, 4, 5, 6, 7].map(b => charBinLabel(b * 5000));
+const SEP_SIZES = ['1–5개', '6–20개', '21–100개', '101개 이상'];
+const sepSizeLabel = n => n <= 5 ? SEP_SIZES[0] : n <= 20 ? SEP_SIZES[1] : n <= 100 ? SEP_SIZES[2] : SEP_SIZES[3];
+const GAP_LABELS = ['연령 미상', '가구 유형 미분류', '주제 미분류(다룬 주제 없음)', '군집: 일반 서술형(주제 미분화)', '요약문 없음', '본문 변환 이상(단순 텍스트 복구본)', '도식·표 비중 측정 불가(docx 외)', 'AI 도구 언급 없음'];
+const gapLabels = d => [!d.age_band && GAP_LABELS[0], !(d.household || []).length && GAP_LABELS[1], !(d.topics || []).length && GAP_LABELS[2], d.cluster_name === '일반 서술형(주제 미분화)' && GAP_LABELS[3],
+  !String(d.summary || '').trim() && GAP_LABELS[4], d.note && GAP_LABELS[5], d.vis_pct == null && GAP_LABELS[6], !(d.ai || []).length && GAP_LABELS[7]].filter(Boolean);
 const CGROUPS = [
   { key: 'type', label: '유형', get: d => [d.type ? d.type + '안' : '미상'] },
   { key: 'cluster', label: '군집', get: d => [d.cluster_name] },
   { key: 'age', label: '연령대', get: d => [d.age_band || '연령미상'], order: AGE_ORDER },
   { key: 'hh', label: '가구', get: d => d.household.length ? d.household : ['미분류'] },
-  { key: 'topic', label: '주제', get: d => d.topics },
-  { key: 'ai', label: 'AI 도구', get: d => d.ai },
-  { key: 'tech', label: '기술', get: d => d.tech },
+  { key: 'topic', label: '주제', get: d => d.topics.length ? d.topics : ['해당 없음'] },
+  { key: 'ai', label: 'AI 도구', get: d => d.ai.length ? d.ai : ['해당 없음'] },
+  { key: 'tech', label: '기술', get: d => d.tech.length ? d.tech : ['해당 없음'] },
   { key: 'vis', label: '도식·표 비중', get: d => visBands(d), order: VIS_ORDER },
   { key: 'sep', label: '별도자료', get: d => [d.sep ? '있음' : '없음'] },
+  { key: 'sepsize', label: '별도자료 파일 수', get: d => d.sep ? [sepSizeLabel(d.sep.files)] : [], order: SEP_SIZES },
+  { key: 'chars', label: '본문 분량', get: d => [charBinLabel(d.chars)], order: CHAR_BINS },
+  { key: 'gap', label: '미상·결측', get: d => gapLabels(d), order: GAP_LABELS },
   { key: 'sepl', label: '별도 연계성(AI 점검)', get: d => SEPX[d.id] && SEPX[d.id].gl ? [SEPX[d.id].gl] : [], order: ['상', '중', '하'] },
   { key: 'sepc', label: '별도 완성도(AI 점검)', get: d => SEPX[d.id] && SEPX[d.id].gc ? [SEPX[d.id].gc] : [], order: ['상', '중', '하'] },
   { key: 'sepu', label: '별도 사용성(AI 점검)', get: d => SEPX[d.id] && SEPX[d.id].gu ? [SEPX[d.id].gu] : [], order: ['상', '중', '하'] },
+  { key: 'sepo', label: '별도 종합(AI 점검)', get: d => SEPX[d.id] && SEPX[d.id].go ? [SEPX[d.id].go] : [], order: ['상', '중', '하'] },
   { key: 'sepf', label: '별도 확인 필요(AI 점검)', get: d => SEPX[d.id] && SEPX[d.id].flags ? SEPX[d.id].flags.map(f => f.t) : [] },
   { key: 'fmt', label: '형식', get: d => [d.fmt || '?'] }
 ];
