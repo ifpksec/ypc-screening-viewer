@@ -585,12 +585,12 @@ function critOverall(c) { const g = ['g1', 'g2', 'g3', 'g4', 'g5'].map(k => c[k]
 function critBox(d) {
   const c = CRIT[d.id]; if (!c || S.role !== 'admin') return null;
   const chip = (lab, g, tip) => el('span', { class: 'cchip ' + (g === '상' ? 'hi' : g === '하' ? 'lo' : 'mid'), title: tip || '' }, el('b', {}, lab), ' ', g);
-  const ov = critOverall(c);
+  const ov = c.ov || critOverall(c);
   return el('div', { class: 'critbox' }, el('div', { class: 'sep-h' }, '심사기준 충족도 (예심 5대 지표 · AI 사전 판정)'),
-    el('div', { class: 'crow' }, el('span', { class: 'cchip big ' + (ov === '상' ? 'hi' : ov === '하' ? 'lo' : 'mid') }, el('b', {}, '종합'), ' ', ov),
+    el('div', { class: 'crow' }, el('span', { class: 'cchip big ' + (ov === '상' ? 'hi' : ov === '하' ? 'lo' : 'mid'), title: c.ovr ? '전체 465건 중 ' + c.ovr + '위 (점수 ' + c.ovs + ') · 상위 20% 상 / 다음 30% 중 / 나머지 50% 하' + (c.ov_rule ? ' · 공고 규칙 판정: ' + c.ov_rule : '') : '' }, el('b', {}, '종합'), ' ', ov, c.ovr ? el('small', {}, ' ' + c.ovr + '위/465') : null),
       CRIT_F.map(([k, lab]) => chip(lab, c[k], (c.r && c.r[k] ? c.r[k] : '') + (c.q && c.q[k] ? '\n본문: ' + c.q[k] : '') + ((c.u || []).includes(k) ? '\n(본문 일부가 잘려 보이는 범위로 판정)' : '') + ((c.cap || []).includes(k) ? '\n(상 조건 키워드 점검에서 중으로 낮춤)' : '')))),
     el('dl', { class: 'kv' }, CRIT_F.flatMap(([k, lab]) => [el('dt', {}, lab), el('dd', {}, c.r && c.r[k] ? c.r[k] + ((c.u || []).includes(k) ? ' (일부 확인 불가)' : '') : '')])),
-    el('p', { class: 'hint' }, '공고된 심사 기준표를 AI가 본문(부록 포함)에 적용한 사전 판정으로, 위원 판정을 대신하지 않는 참고값입니다. 지표에 마우스를 올리면 이유와 근거 문장이 보입니다. 종합은 공고된 규칙으로 계산했습니다. 공고 조건을 문자 그대로 적용한 값이라 상 비율이 높게 나옵니다(상대 비교와 15% 상한은 위원이 판단). AI 판정 후 상 조건 키워드가 본문에 없으면 중으로 낮추었습니다.'));
+    el('p', { class: 'hint' }, '공고된 심사 기준표를 AI가 본문(부록 포함)에 적용한 사전 판정으로, 위원 판정을 대신하지 않는 참고값입니다. 지표에 마우스를 올리면 이유와 근거 문장이 보입니다. 지표별 판정은 공고 조건을 문자 그대로 적용해 상이 많게 나오므로(상 조건 키워드가 본문에 없으면 중으로 낮춤), 종합은 우수작 점수(충족도 55% + 근거 깊이 25% + 별도자료 점검 10% − 감점 10%)의 전체 465건 순위로 상 20%·중 30%·하 50%에 배분했습니다.'));
 }
 // 본문 요약 카드: 모든 사례를 같은 5개 항목으로 정리(고객 상황·핵심 과제·제안 방안·근거·AI 활용). 항목마다 본문 원문 인용을 함께 보관한다.
 const CARD_F = [['who', '고객 상황'], ['issue', '핵심 과제'], ['plan', '제안 방안'], ['evid', '근거·산출물'], ['ai', 'AI 활용']];
