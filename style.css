@@ -115,3 +115,5 @@ button.kpi{font:inherit;color:inherit;text-align:left;cursor:pointer}button.kpi:
 .linkbtn{font:inherit;color:var(--pr);background:none;border:0;padding:0;cursor:pointer;text-decoration:underline}
 
 .dsub{margin-top:14px}.dsub h4{margin:0 0 6px;font-size:13.5px;color:var(--pr)}.sepbox>h3{margin:0 0 2px}
+
+.cardbox{background:var(--prb);border-radius:10px;padding:10px 14px;margin:10px 0}.cardbox .kv{margin:4px 0}.cardbox .hint{margin:6px 0 0}

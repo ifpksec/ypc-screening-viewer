@@ -516,7 +516,8 @@ function showDetail(id) {
   const dt = $('#detail'); const info = el('div', {},
     el('div', { class: 'id muted' }, d.id + ' · ' + (d.type || '?') + '안 · ' + d.fmt),
     el('h2', {}, d.title), d.headline ? el('div', { class: 'hl', style: 'color:var(--pr)' }, d.headline) : null,
-    el('div', { class: 'sum' }, d.summary || '(요약 없음)'),
+    cardBox(d),
+    el('div', { class: 'sum' }, el('div', { class: 'sep-h' }, '작성자 서두(원문 발췌)'), d.summary || '(요약 없음)'),
     el('div', { class: 'tags' }, d.topics.map(t => el('span', { class: 'tag' }, t)), d.ai.map(t => el('span', { class: 'tag g' }, t)), d.tech.map(t => el('span', { class: 'tag g' }, t))),
     el('dl', { class: 'kv' }, kv('군집', d.cluster_name), kv('연령(추정)', d.age ? d.age + '세 (' + d.age_band + ')' : '확인 불가'), kv('가구', d.household.join(', ') || '미분류'), kv('본문 분량', d.chars.toLocaleString() + '자'), kv('도식·표 비중', d.vis_pct == null ? '측정 불가(docx 외 형식)' : d.vis_pct + '%'), kv('별도자료', sepTxt), d.note ? kv('비고', d.note) : []),
     el('div', { class: 'openrow' }, el('button', { class: 'btn primary', onclick: () => openOriginal(d) }, '원본 보기'),
@@ -553,6 +554,14 @@ function manipBox(d) {
     labs.map(l => el('div', {}, el('div', { class: 'sep-h' }, l + ' · ' + m.types[l].n + '곳'),
       m.types[l].sn.map(x => el('div', { class: 'cmd' }, (x.p != null ? '[본문 ' + x.p + '% 지점] ' : '') + x.t)))),
     el('p', { class: 'hint' }, '정규식으로 뽑은 후보를 읽고 가려낸 문장으로, 위반 판정이 아니라 위원이 확인할 단서입니다. (참고) 표시는 부록의 AI 프롬프트 기록 등 정상 범위입니다. 사례당 유형별 최대 2문장만 보여 줍니다.'));
+}
+// 본문 요약 카드: 모든 사례를 같은 5개 항목으로 정리(고객 상황·핵심 과제·제안 방안·근거·AI 활용). 항목마다 본문 원문 인용을 함께 보관한다.
+const CARD_F = [['who', '고객 상황'], ['issue', '핵심 과제'], ['plan', '제안 방안'], ['evid', '근거·산출물'], ['ai', 'AI 활용']];
+function cardBox(d) {
+  const c = d.card; if (!c) return null;
+  return el('div', { class: 'cardbox' }, el('div', { class: 'sep-h' }, '본문 요약 카드'),
+    el('dl', { class: 'kv' }, CARD_F.flatMap(([k, lab]) => [el('dt', {}, lab), el('dd', { title: c.q && c.q[k] ? '본문: ' + c.q[k] : '' }, c[k])])),
+    el('p', { class: 'hint' }, 'AI가 본문을 읽고 같은 형식으로 정리한 요약입니다(평가 아님). 항목에 마우스를 올리면 근거가 된 본문 문장이 보입니다.'));
 }
 // 상세 화면 표준 구조: 섹션(h3) 안에 소제목(h4) 블록. 항목은 "라벨 / 값" 표(dl.kv)로 통일한다.
 const dsub = (title, ...kids) => el('div', { class: 'dsub' }, el('h4', {}, title), ...kids);
