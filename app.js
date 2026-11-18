@@ -39,7 +39,7 @@ const CL = {
 const AGE_ORDER = ['20대', '30대', '40대', '50대', '60대 이상', '연령미상'];
 const PAGE = 12;
 const S = { code: null, role: null, judge: null, settings: null };
-let DATA = [], ITEM = {}, ASSIGN = [], ADMIN = null, PUB = null, SEPX = {}; // PUB: 접근코드 없이 받는 공개 집계(통계 탭 전용)
+let DATA = [], ITEM = {}, ASSIGN = [], ADMIN = null, PUB = null, SEPX = {}, MANIP = {}; // PUB: 접근코드 없이 받는 공개 집계(통계 탭 전용)
 let view = [], page = 1, navIds = [], curIdx = -1;
 
 // ---------- API ----------
@@ -103,6 +103,7 @@ async function unlock(code, opts = {}) {
     d.summary = (d.summary || '').replace(/^[\s·•※■□○●▶\-–]+/, ''); d.headline = d.headline || '';
   }
   ITEM = Object.fromEntries(DATA.map(d => [d.id, d]));
+  try { MANIP = (await call('ypc_manip')) || {}; } catch { MANIP = {}; } // 평가 유도·단정 표현 점검(관리자 전용)
   try { SEPX = (await call('ypc_sepx')) || {}; } catch { SEPX = {}; } // 별도자료 실행 점검(관리자: 전체·점수 포함 / 심사위원: 배정 사례의 설명만)
   if (S.role === 'admin') ADMIN = await call('ypc_admin_state');
   try { const tk = await call('ypc_orig_token'); if (tk) store.set('ypc_gh', tk); } catch {} // 관리자가 등록한 공용 읽기 토큰 자동 적용
@@ -312,7 +313,22 @@ function renderStats() {
     v.append(el('div', { class: 'sect' }, el('h3', {}, '별도자료(_별도.zip) 통계 — 심사 대상 ' + N + '건 중 ' + Z + '건'),
       el('p', { class: 'sub' }, XS.note + ' 이 섹션의 막대는 별도자료가 있는 ' + Z + '건 기준입니다(누락 ' + X + '건 제외).'), el('div', { class: 'kpis' }, kpi(Z, '별도자료 첨부 사례', adm ? () => jump('sep', '있음') : null), kpi(XS.files.toLocaleString(), '압축 안 전체 파일'), kpi(XS.mb + 'MB', '압축 용량 합계'), kpi(pct(Z, N), '심사 대상 대비 첨부율', adm ? () => jump('sep', '있음') : null)), Q));
   }
-  if (adm) sepxStats(v);
+  if (adm) { manipStats(v); sepxStats(v); }
+}
+
+// 평가 유도·단정 표현 통계(관리자): 숫자를 누르면 해당 사례만 필터된 목록으로 이동
+function manipStats(v) {
+  if (!DATA.length) return;
+  const N = DATA.length, nA = DATA.filter(d => d.type === 'A').length, nB = N - nA;
+  const ids = Object.keys(MANIP).filter(i => ITEM[i]);
+  const row = lab => { const ds = ids.filter(i => MANIP[i].types[lab]); return { lab, docs: ds.length, sent: ds.reduce((s, i) => s + MANIP[i].types[lab].n, 0), A: ds.filter(i => ITEM[i].type === 'A').length, B: ds.filter(i => ITEM[i].type === 'B').length }; };
+  const rows = MANIP_ORDER.map(row);
+  const cell = (n, lab) => n && lab ? el('button', { class: 'linkbtn', title: '사례 목록에서 보기', onclick: () => jump('manip', lab) }, n) : (n || '0');
+  const tbl = el('table', { class: 'tbl' }, el('tr', {}, el('th', {}, '유형'), el('th', { class: 'n' }, '사례 수'), el('th', { class: 'n' }, '문장 수'), el('th', { class: 'n' }, 'A안 (' + nA + ')'), el('th', { class: 'n' }, 'B안 (' + nB + ')'), el('th', { class: 'n' }, '비율')),
+    rows.map((r, i) => el('tr', i === 3 ? { style: 'border-top:2px solid var(--bd)' } : i === 6 ? { style: 'border-top:2px solid var(--bd)' } : {}, el('td', {}, r.lab), el('td', { class: 'n' }, cell(r.docs, r.lab)), el('td', { class: 'n' }, r.sent), el('td', { class: 'n' }, r.A), el('td', { class: 'n' }, r.B), el('td', { class: 'n' }, pct(r.docs, N)))));
+  v.append(el('div', { class: 'sect' }, el('h3', {}, '본문 평가 유도·단정 표현 점검 — 심사 대상 ' + N + '건'),
+    el('p', { class: 'sub' }, '위 3개 유형(평가자 직접 지시·점수 요구·독창성 강요)은 본문 전체를 정규식으로 훑고 후보 문장을 직접 읽어 확인했으며 해당 문장은 없었습니다. (참고) 3개 유형은 위반이 아닌 정상 범위의 기록입니다. 단정 4개 유형은 실험·결과물·검증 결과를 긍정적·절대적으로 단정한 문장으로, 근거가 있는 경우도 포함합니다. 사례 수를 누르면 해당 사례 목록으로 이동합니다.'),
+    el('div', { class: 'scroll' }, tbl)));
 }
 
 // 별도자료 실행 점검 통계(관리자): 숫자를 누르면 해당 사례만 필터된 목록으로 이동
@@ -381,6 +397,7 @@ const sepSizeLabel = n => n <= 5 ? SEP_SIZES[0] : n <= 20 ? SEP_SIZES[1] : n <= 
 const GAP_LABELS = ['연령 미상', '가구 유형 미분류', '주제 미분류(다룬 주제 없음)', '군집: 일반 서술형(주제 미분화)', '요약문 없음', '본문 변환 이상(단순 텍스트 복구본)', '도식·표 비중 측정 불가(docx 외)', 'AI 도구 언급 없음'];
 const gapLabels = d => [!d.age_band && GAP_LABELS[0], !(d.household || []).length && GAP_LABELS[1], !(d.topics || []).length && GAP_LABELS[2], d.cluster_name === '일반 서술형(주제 미분화)' && GAP_LABELS[3],
   !String(d.summary || '').trim() && GAP_LABELS[4], d.note && GAP_LABELS[5], d.vis_pct == null && GAP_LABELS[6], !(d.ai || []).length && GAP_LABELS[7]].filter(Boolean);
+const MANIP_ORDER = ['평가자(심사위원·AI)에게 직접 지시', '점수·긍정 평가 요구', '독창성·우월성 강요', '채점 기준·가점을 노린 작성 기록(참고)', '모의 채점·자체 평가 기록(참고)', '숨김·보이지 않는 글자(참고)', '단정① 완전·무오류', '단정② 전수 통과·문제 없음', '단정③ 입증·검증 완료', '단정④ 효과·성과'];
 const CGROUPS = [
   { key: 'type', label: '유형', get: d => [d.type ? d.type + '안' : '미상'] },
   { key: 'cluster', label: '군집', get: d => [d.cluster_name] },
@@ -396,6 +413,7 @@ const CGROUPS = [
   { key: 'seprun', label: '별도 실행 방식', get: d => d.sep && d.sep.run ? [d.sep.run] : [] },
   { key: 'sepkind', label: '별도 파일 구성', get: d => d.sep && d.sep.kind ? [d.sep.kind] : [] },
   { key: 'seppkg', label: '별도 외부 패키지', get: d => d.sep && d.sep.pkgs ? d.sep.pkgs : [] },
+  { key: 'manip', label: '평가 유도·단정 표현(AI 점검)', get: d => MANIP[d.id] ? Object.keys(MANIP[d.id].types) : [], order: MANIP_ORDER },
   { key: 'sepsize', label: '별도자료 파일 수', get: d => d.sep ? [sepSizeLabel(d.sep.files)] : [], order: SEP_SIZES },
   { key: 'chars', label: '본문 분량', get: d => [charBinLabel(d.chars)], order: CHAR_BINS },
   { key: 'gap', label: '미상·결측', get: d => gapLabels(d), order: GAP_LABELS },
@@ -500,6 +518,7 @@ function showDetail(id) {
     el('dl', { class: 'kv' }, kv('군집', d.cluster_name), kv('연령(추정)', d.age ? d.age + '세 (' + d.age_band + ')' : '확인 불가'), kv('가구', d.household.join(', ') || '미분류'), kv('본문 분량', d.chars.toLocaleString() + '자'), kv('도식·표 비중', d.vis_pct == null ? '측정 불가(docx 외 형식)' : d.vis_pct + '%'), kv('별도자료', sepTxt), d.note ? kv('비고', d.note) : []),
     el('div', { class: 'openrow' }, el('button', { class: 'btn primary', onclick: () => openOriginal(d) }, '원본 보기'),
       el('button', { class: 'btn', onclick: () => navigator.clipboard && navigator.clipboard.writeText(d.id) }, '번호 복사')),
+    manipBox(d),
     d.sep ? sepxBox(d) : null,
     d.sep ? sepBox(d) : null,
     el('p', { class: 'hint' }, '원본 보기: 비공개 레포(' + CFG.ORIG_REPO + ')에서 읽기 전용 토큰으로 직접 불러옵니다.'));
@@ -507,6 +526,15 @@ function showDetail(id) {
   $('#prev').disabled = curIdx <= 0; $('#next').disabled = curIdx < 0 || curIdx >= navIds.length - 1;
   $('#navpos').textContent = navIds.length > 1 ? (curIdx + 1) + ' / ' + navIds.length : '';
   window.scrollTo(0, 0);
+}
+// 본문 평가 유도·단정 표현 점검(관리자 전용): 정규식 후보를 읽고 가려낸 문장. 위반 판정이 아니라 확인용 표시.
+function manipBox(d) {
+  const m = MANIP[d.id]; if (!m || S.role !== 'admin') return null;
+  const labs = MANIP_ORDER.filter(l => m.types[l]);
+  return el('div', { class: 'sepbox' }, el('h3', {}, '평가 유도·단정 표현 점검'),
+    labs.map(l => el('div', {}, el('div', { class: 'sep-h' }, l + ' · ' + m.types[l].n + '곳'),
+      m.types[l].sn.map(x => el('div', { class: 'cmd' }, (x.p != null ? '[본문 ' + x.p + '% 지점] ' : '') + x.t)))),
+    el('p', { class: 'hint' }, '정규식으로 뽑은 후보를 읽고 가려낸 문장으로, 위반 판정이 아니라 위원이 확인할 단서입니다. (참고) 표시는 부록의 AI 프롬프트 기록 등 정상 범위입니다. 사례당 유형별 최대 2문장만 보여 줍니다.'));
 }
 // 별도자료 실행 점검: 파일을 열고(HTML은 브라우저에서 입력·클릭) 확인한 내용. 점수·확인 필요 표시는 관리자에게만 내려옴.
 function sepxBox(d) {
