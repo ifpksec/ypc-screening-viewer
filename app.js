@@ -114,6 +114,7 @@ async function unlock(code, opts = {}) {
   $('#total').textContent = S.role === 'admin' ? '관리자 · ' + DATA.length + '건' : '심사위원 ' + S.judge.name;
   buildTabs(); initCards(); initJudge(); renderImpBar();
   route();
+  if (PENDING) { const f = PENDING; PENDING = null; setTimeout(f, 50); }
 }
 $('#gateForm').addEventListener('submit', async e => {
   e.preventDefault(); const btn = $('#gateForm button'); btn.disabled = true; $('#gateMsg').textContent = '';
@@ -202,7 +203,12 @@ function bars(entries, total, onclick) {
     el('span', { class: 'lb' }, label), el('span', { class: 'tr' }, el('span', { class: 'fl', style: 'width:' + (n / max * 100) + '%' })),
     el('span', { class: 'nv' }, n + ' (' + Math.round(n / total * 100) + '%)')); });
 }
-function jumpMany(obj) { CF.reset(); $('#q').value = ''; for (const [k, v] of Object.entries(obj)) CF.sel[k] = new Set(v); page = 1; applyCards(); go('cards'); }
+let PENDING = null; // 접근코드 입력 전에 누른 통계 항목: 로그인 직후 같은 필터 목록으로 이동
+function jumpMany(obj) {
+  if (!S.code) { PENDING = () => jumpMany(obj); openGate('접근코드를 입력하면 선택한 항목의 사례 목록으로 이동합니다.'); return; }
+  const o = typeof obj === 'function' ? obj() : obj;
+  CF.reset(); $('#q').value = ''; for (const [k, v] of Object.entries(o)) CF.sel[k] = new Set(v); page = 1; applyCards(); go('cards');
+}
 function jump(key, label) { jumpMany({ [key]: [label] }); }
 const kpi = (b, s, on) => el(on ? 'button' : 'div', { class: 'kpi', onclick: on || null, title: on ? '사례 목록에서 보기' : null }, el('b', {}, b), el('span', {}, s));
 const panel = (title, nodes, wide) => el('div', { class: 'panel' + (wide ? ' wide' : '') }, el('h3', {}, title), nodes);
@@ -268,13 +274,13 @@ function downloadStatsMd() {
 }
 function renderStats() {
   const v = $('#view-stats'); v.replaceChildren(); if (!PUB) return;
-  const adm = S.role === 'admin', S3 = statSets(), N = S3.N, T = S3.T, X = S3.X;
+  const isAdm = S.role === 'admin', adm = isAdm || !S.code, S3 = statSets(), N = S3.N, T = S3.T, X = S3.X; // adm: 눌러서 이동 가능(로그인 전에는 접근코드 창으로 연결)
   const J = key => adm ? l => { if (l !== XL) jump(key, l); } : null;
   const withNote = (title, set, onc) => panel(title, [...bars(set.rows, T, onc), set.note ? el('p', { class: 'hint' }, set.note) : null]);
   v.append(el('div', { class: 'openrow', style: 'margin-bottom:12px' }, el('button', { class: 'btn small', onclick: downloadStatsMd }, '마크다운(.md) 다운로드')));
   v.append(el('div', { class: 'kpis' },
     kpi(N, '심사 대상', adm ? () => jumpMany({}) : null), kpi(PUB.nB + ' / ' + PUB.nA, 'B안 / A안(심사 대상)'), kpi(PUB.nSep, '별도자료 첨부', adm ? () => jump('sep', '있음') : null),
-    kpi(Number(PUB.avgChars).toLocaleString(), '평균 본문 글자수'), kpi(PUB.nTech, '기술(Python·웹앱 등) 언급', adm ? () => jumpMany({ tech: [...new Set(DATA.flatMap(d => d.tech))] }) : null), kpi(PUB.nNonDocx, 'docx 외 형식', adm ? () => jumpMany({ fmt: [...new Set(DATA.map(d => d.fmt).filter(f => f && f !== 'docx'))] }) : null)));
+    kpi(Number(PUB.avgChars).toLocaleString(), '평균 본문 글자수'), kpi(PUB.nTech, '기술(Python·웹앱 등) 언급', adm ? () => jumpMany(() => ({ tech: [...new Set(DATA.flatMap(d => d.tech))] })) : null), kpi(PUB.nNonDocx, 'docx 외 형식', adm ? () => jumpMany(() => ({ fmt: [...new Set(DATA.map(d => d.fmt).filter(f => f && f !== 'docx'))] })) : null)));
   v.append(el('p', { class: 'hint', style: 'margin:-4px 0 14px' }, '심사 대상 ' + N + '건 기준입니다. 단일 소속 항목의 막대 합계는 ' + N + '이며, 비율도 ' + N + '건 기준입니다.'));
   v.append(el('div', { class: 'panel wide', style: 'margin-bottom:16px' }, el('h3', {}, '주제 군집 (TF-IDF + KMeans' + (adm ? ', 클릭하면 해당 사례 목록)' : ')')),
     el('div', { class: 'cl' }, [...PUB.cluster.map(([name, n]) => el(adm ? 'button' : 'div', { class: 'cl-item', style: adm ? null : 'cursor:default', onclick: adm ? () => jump('cluster', name) : null },
@@ -310,7 +316,7 @@ function renderStats() {
     v.append(el('div', { class: 'sect' }, el('h3', {}, '별도자료(_별도.zip) 통계 — 심사 대상 ' + N + '건 중 ' + Z + '건'),
       el('p', { class: 'sub' }, XS.note + ' 이 섹션의 막대는 별도자료가 있는 ' + Z + '건 기준입니다.'), el('div', { class: 'kpis' }, kpi(Z, '별도자료 첨부 사례', adm ? () => jump('sep', '있음') : null), kpi(XS.files.toLocaleString(), '압축 안 전체 파일'), kpi(XS.mb + 'MB', '압축 용량 합계'), kpi(pct(Z, N), '심사 대상 대비 첨부율', adm ? () => jump('sep', '있음') : null)), Q));
   }
-  if (adm) { manipStats(v); sepxStats(v); }
+  if (isAdm) { manipStats(v); sepxStats(v); }
 }
 
 // 평가 유도·단정 표현 통계(관리자): 숫자를 누르면 해당 사례만 필터된 목록으로 이동
