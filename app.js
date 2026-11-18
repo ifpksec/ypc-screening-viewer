@@ -510,7 +510,7 @@ function showDetail(id) {
   for (const k of Object.keys(TABS)) $('#view-' + k).hidden = true; $('#view-detail').hidden = false;
   if (!lastTab) lastTab = TABKEYS()[0];
   for (const b of document.querySelectorAll('.tab')) b.setAttribute('aria-selected', String(b.dataset.tab === lastTab));
-  const sepTxt = d.sep ? d.sep.files + '개 파일 · ' + d.sep.mb + 'MB (' + Object.entries(d.sep.ext).map(([e, n]) => e + ' ' + n).join(', ') + ')' : '없음';
+  const sepTxt = d.sep ? d.sep.files + '개 파일 · ' + d.sep.mb + 'MB (' + Object.entries(d.sep.ext).map(([e, n]) => e + ' ' + n).join(', ') + ')' : (SEPX[d.id] ? '단일 파일로 제출(압축 아님) — 아래 점검 결과 참고' : '없음');
   const kv = (k, v) => [el('dt', {}, k), el('dd', {}, v)];
   const dt = $('#detail'); const info = el('div', {},
     el('div', { class: 'id muted' }, d.id + ' · ' + (d.type || '?') + '안 · ' + d.fmt),
@@ -521,7 +521,7 @@ function showDetail(id) {
     el('div', { class: 'openrow' }, el('button', { class: 'btn primary', onclick: () => openOriginal(d) }, '원본 보기'),
       el('button', { class: 'btn', onclick: () => navigator.clipboard && navigator.clipboard.writeText(d.id) }, '번호 복사')),
     manipBox(d),
-    d.sep ? sepxBox(d) : null,
+    sepxBox(d),  // 압축이 아닌 단일 파일(html·엑셀·pptx 등)로 낸 별도자료도 점검 결과를 보여 준다
     d.sep ? sepBox(d) : null,
     el('p', { class: 'hint' }, '원본 보기: 비공개 레포(' + CFG.ORIG_REPO + ')에서 읽기 전용 토큰으로 직접 불러옵니다.'));
   dt.replaceChildren(el('div', { class: 'dgrid' }, info, S.role === 'judge' ? evalForm(d) : adminEvals(d)));
