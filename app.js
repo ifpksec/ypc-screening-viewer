@@ -39,7 +39,7 @@ const CL = {
 const AGE_ORDER = ['20대', '30대', '40대', '50대', '60대 이상', '연령미상'];
 const PAGE = 12;
 const S = { code: null, role: null, judge: null, settings: null };
-let DATA = [], ITEM = {}, ASSIGN = [], ADMIN = null, PUB = null, SEPX = {}, MANIP = {}, LINKS = {}, CRIT = {}; // PUB: 접근코드 없이 받는 공개 집계(통계 탭 전용)
+let DATA = [], ITEM = {}, ASSIGN = [], ADMIN = null, PUB = null, SEPX = {}, MANIP = {}, LINKS = {}, CRIT = {}, AIJ = {}; // PUB: 접근코드 없이 받는 공개 집계(통계 탭 전용)
 let view = [], page = 1, navIds = [], curIdx = -1;
 
 // ---------- API ----------
@@ -104,6 +104,7 @@ async function unlock(code, opts = {}) {
   }
   ITEM = Object.fromEntries(DATA.map(d => [d.id, d]));
   try { MANIP = (await call('ypc_manip')) || {}; } catch { MANIP = {}; } // 평가 유도·단정 표현 점검(관리자 전용)
+  try { AIJ = (await call('ypc_aijudge')) || {}; } catch { AIJ = {}; } // AI 심사위원 탭(관리자 전용)
   try { CRIT = (await call('ypc_crit')) || {}; } catch { CRIT = {}; } // 심사기준(예심 5대 지표) 충족도 AI 사전 판정(관리자 전용)
   try { LINKS = (await call('ypc_links')) || {}; } catch { LINKS = {}; } // 링크로 제출한 별도 제출물 안내
   try { SEPX = (await call('ypc_sepx')) || {}; } catch { SEPX = {}; } // 별도자료 실행 점검(관리자: 전체·점수 포함 / 심사위원: 배정 사례의 설명만)
@@ -156,15 +157,35 @@ async function backToAdmin() {
   try { await unlock(a); } catch (e) { store.del('ypc_admin'); store.del('ypc_code'); alert('관리자 복귀 실패(코드가 변경되었을 수 있습니다): ' + e.message); location.reload(); }
 }
 
+// ---------- AI 심사위원 탭: 배정 묶음별 우수작 · AI 문체 신호 · 인간 작업 신호 Top 10 (관리자 전용) ----------
+let AIJ_SEL = '0';
+function renderAiJudge() {
+  const v = $('#view-aijudge'); const keys = Object.keys(AIJ).sort(); if (!keys.length) { v.replaceChildren(el('p', { class: 'muted' }, 'AI 심사위원 데이터가 없습니다.')); return; }
+  if (!AIJ[AIJ_SEL]) AIJ_SEL = keys[0];
+  const col = (title, sub, list, cls) => el('div', { class: 'panel aij-col' }, el('h3', {}, title), el('p', { class: 'sub' }, sub),
+    el('ol', { class: 'aij-list' }, list.map(x => { const it = ITEM[x.id] || {}; return el('li', {}, el('a', { href: '#/case/' + encodeURIComponent(x.id) }, x.id.replace('YPC2026-', '')),
+      el('span', { class: 'aij-t' }, ' ' + (it.title || '')), el('span', { class: 'aij-s ' + cls }, x.s.toFixed(1)),
+      el('div', { class: 'tags' }, (x.sig || []).map(t => el('span', { class: 'tag g' }, t)))); })));
+  const d = AIJ[AIJ_SEL];
+  v.replaceChildren(el('h2', { class: 'vh' }, 'AI 심사위원 · 배정 묶음별 Top 10'),
+    el('p', { class: 'sub' }, '심사위원 배정(위원당 108건)을 기준으로 각 묶음 안에서 순위를 매깁니다. 사례 번호를 누르면 상세로 이동합니다.'),
+    el('div', { class: 'aij-sel' }, keys.map(k => el('button', { class: 'btn' + (k === AIJ_SEL ? ' primary' : ''), onclick: () => { AIJ_SEL = k; renderAiJudge(); } }, (k === '0' ? '전체' : '심사위원' + k) + ' (' + AIJ[k].n + '건)'))),
+    el('div', { class: 'aij-grid' },
+      col('우수작 Top 10', '심사기준 충족도 55% + 근거 깊이 25% + 별도자료 점검 10% − 감점 10%', d.ex, 'ex'),
+      col('AI 문체 신호가 강한 Top 10', '문장 길이 균일·AI식 어휘·서식 기호·“키워드: 설명”·목록이 많고 1인칭·직접 확인·경험 표현이 적은 순', d.ai, 'ai'),
+      col('인간 작업 신호가 강한 Top 10', '1인칭·직접 계산·수정·경험 표현이 많고 문장·문단 길이가 불규칙하며 AI식 어휘·서식이 적은 순', d.hu, 'hu')),
+    el('div', { class: 'cardbox' }, el('div', { class: 'sep-h' }, '읽는 법과 한계'),
+      el('p', { class: 'hint' }, '점수는 이 후보군 안에서의 상대 순위 신호이며 평가 점수가 아닙니다. AI 문체·인간 작업 순위는 문체 통계(어휘, 문장·문단 길이, 서식 기호, 1인칭·경험 표현)로 계산한 것으로, AI가 썼는지 판별하는 도구가 아니며 오탐이 있을 수 있습니다. 이 공모전은 AI 활용을 평가 항목에 포함하므로 AI 문체가 강하다는 사실이 감점 근거가 되지 않습니다. 우수작 순위는 심사기준 충족도(AI 사전 판정)가 대부분 상이어서 근거 깊이와 별도자료 점검으로 변별했습니다. 최종 판단은 심사위원이 합니다.')));
+}
 // ---------- 탭 ----------
-const TABS = { stats: '통계·군집', cards: '사례 목록', judge: '심사위원', settings: '설정' };
+const TABS = { stats: '통계·군집', cards: '사례 목록', aijudge: 'AI 심사위원', judge: '심사위원', settings: '설정' };
 function buildTabs() {
   if (!S.code) {
     $('#tabs').replaceChildren(el('button', { class: 'tab', role: 'tab', 'data-tab': 'stats', onclick: () => go('stats') }, TABS.stats),
-      ...['cards', 'judge', 'settings'].map(n => el('button', { class: 'tab', role: 'tab', title: '접근코드가 필요합니다', onclick: () => openGate('이 탭은 접근코드가 필요합니다.') }, TABS[n] + ' 🔒')));
+      ...['cards', 'aijudge', 'judge', 'settings'].map(n => el('button', { class: 'tab', role: 'tab', title: '접근코드가 필요합니다', onclick: () => openGate('이 탭은 접근코드가 필요합니다.') }, TABS[n] + ' 🔒')));
     return;
   }
-  const names = S.role === 'admin' ? ['stats', 'cards', 'judge', 'settings'] : ['judge'];
+  const names = S.role === 'admin' ? ['stats', 'cards', 'aijudge', 'judge', 'settings'] : ['judge'];
   $('#tabs').replaceChildren(...names.map(n => el('button', { class: 'tab', role: 'tab', 'data-tab': n, onclick: () => go(n) }, n === 'judge' && S.role === 'admin' ? '심사현황' : TABS[n])));
 }
 async function refreshAdmin() {
@@ -172,17 +193,17 @@ async function refreshAdmin() {
   try { [ASSIGN, ADMIN] = await Promise.all([call('ypc_assignments'), call('ypc_admin_state')]); S.settings = ADMIN.settings; } catch {}
 }
 let lastTab = null, detailPushed = false; const scrollPos = {};
-const TABKEYS = () => S.role === 'admin' ? ['stats', 'cards', 'judge', 'settings'] : ['judge'];
+const TABKEYS = () => S.role === 'admin' ? ['stats', 'cards', 'aijudge', 'judge', 'settings'] : ['judge'];
 function go(tab) { scrollPos[tab] = 0; location.hash = '#/' + tab; if (location.hash === '#/' + tab) route(); }
 function route() {
   if (!S.code) {
     if (!PUB) return;
-    if (/^#\/(cards|judge|settings|case)/.test(location.hash)) { history.replaceState(null, '', location.pathname + location.search + '#/stats'); openGate('이 화면은 접근코드가 필요합니다.'); return; }
+    if (/^#\/(cards|aijudge|judge|settings|case)/.test(location.hash)) { history.replaceState(null, '', location.pathname + location.search + '#/stats'); openGate('이 화면은 접근코드가 필요합니다.'); return; }
     show('stats'); return;
   }
   const m = /^#\/case\/([^/?#]+)/.exec(location.hash);
   if (m) { const id = decodeURIComponent(m[1]); if (ITEM[id]) return showDetail(id); }
-  const t = /^#\/(stats|cards|judge|settings)/.exec(location.hash); const ok = t && TABKEYS().includes(t[1]);
+  const t = /^#\/(stats|cards|aijudge|judge|settings)/.exec(location.hash); const ok = t && TABKEYS().includes(t[1]);
   const tab = ok ? t[1] : TABKEYS()[0];
   if (!ok) history.replaceState(null, '', location.pathname + location.search + '#/' + tab);
   show(tab);
@@ -194,7 +215,7 @@ async function show(tab) {
   for (const k of Object.keys(TABS)) $('#view-' + k).hidden = k !== tab;
   $('#view-detail').hidden = true;
   if (tab !== 'cards' && S.role === 'admin') await refreshAdmin();
-  if (tab === 'stats') renderStats(); if (tab === 'judge') renderJudge(); if (tab === 'settings') renderSettings();
+  if (tab === 'stats') renderStats(); if (tab === 'judge') renderJudge(); if (tab === 'aijudge') renderAiJudge(); if (tab === 'settings') renderSettings();
   window.scrollTo(0, scrollPos[tab] || 0);
 }
 
