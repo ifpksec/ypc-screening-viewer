@@ -522,9 +522,7 @@ function showDetail(id) {
     el('div', { class: 'openrow' }, el('button', { class: 'btn primary', onclick: () => openOriginal(d) }, '원본 보기'),
       el('button', { class: 'btn', onclick: () => navigator.clipboard && navigator.clipboard.writeText(d.id) }, '번호 복사')),
     manipBox(d),
-    linksBox(d),
-    sepxBox(d),  // 압축이 아닌 단일 파일(html·엑셀·pptx 등)로 낸 별도자료도 점검 결과를 보여 준다
-    d.sep ? sepBox(d) : null,
+    sepSection(d),
     el('p', { class: 'hint' }, '원본 보기: 비공개 레포(' + CFG.ORIG_REPO + ')에서 읽기 전용 토큰으로 직접 불러옵니다.'));
   dt.replaceChildren(el('div', { class: 'dgrid' }, info, S.role === 'judge' ? evalForm(d) : adminEvals(d)));
   $('#prev').disabled = curIdx <= 0; $('#next').disabled = curIdx < 0 || curIdx >= navIds.length - 1;
@@ -538,33 +536,50 @@ function linksBox(d) {
   const lin = (txt) => { const out = []; let i = 0; const re = /https?:\/\/[^\s)>\]"',，]+/g; let m;
     while ((m = re.exec(txt))) { if (m.index > i) out.push(txt.slice(i, m.index)); const u = m[0].replace(/[.;]+$/, ''); out.push(el('a', { href: u, target: '_blank', rel: 'noopener noreferrer' }, u)); i = m.index + u.length; re.lastIndex = i; }
     if (i < txt.length) out.push(txt.slice(i)); return out; };
-  return el('div', { class: 'sepbox' }, el('h3', {}, '별도 제출물 링크'),
-    x.t ? el('div', { class: 'cmd' }, ...lin(x.t)) : null,
-    el('dl', { class: 'kv' }, kv('여는 방법', x.h), kv('운영팀 확인', (x.n || []).join(' / '))),
+  return dsub('링크로 제출한 내용', x.t ? el('div', { class: 'cmd' }, ...lin(x.t)) : null,
+    kvr(['여는 방법', x.h], ['운영팀 확인', (x.n || []).join(' / ')]),
     el('p', { class: 'hint' }, '참가자가 신청서 링크 칸에 적은 원문입니다. 외부 사이트이므로 입력칸에 개인정보를 넣지 마세요. 무료 호스팅 앱은 처음 열 때 깨어나는 데 시간이 걸릴 수 있습니다.'));
+}
+// 별도 제출물 섹션: 제출 현황 → 링크 → 설명·확인 → AI 점검(관리자) → 파일 구성 상세 순서로 고정
+function sepSection(d) {
+  const subs = [sepSummary(d), linksBox(d), ...sepxBoxes(d), d.sep ? sepBox(d) : null].filter(Boolean);
+  return subs.length ? el('div', { class: 'sepbox' }, el('h3', {}, '별도 제출물'), ...subs) : null;
 }
 // 본문 평가 유도·단정 표현 점검(관리자 전용): 정규식 후보를 읽고 가려낸 문장. 위반 판정이 아니라 확인용 표시.
 function manipBox(d) {
   const m = MANIP[d.id]; if (!m || S.role !== 'admin') return null;
   const labs = MANIP_ORDER.filter(l => m.types[l]);
-  return el('div', { class: 'sepbox' }, el('h3', {}, '평가 유도·단정 표현 점검'),
+  return el('div', { class: 'sepbox' }, el('h3', {}, '본문 점검 · 평가 유도·단정 표현 (관리자 전용)'),
     labs.map(l => el('div', {}, el('div', { class: 'sep-h' }, l + ' · ' + m.types[l].n + '곳'),
       m.types[l].sn.map(x => el('div', { class: 'cmd' }, (x.p != null ? '[본문 ' + x.p + '% 지점] ' : '') + x.t)))),
     el('p', { class: 'hint' }, '정규식으로 뽑은 후보를 읽고 가려낸 문장으로, 위반 판정이 아니라 위원이 확인할 단서입니다. (참고) 표시는 부록의 AI 프롬프트 기록 등 정상 범위입니다. 사례당 유형별 최대 2문장만 보여 줍니다.'));
 }
+// 상세 화면 표준 구조: 섹션(h3) 안에 소제목(h4) 블록. 항목은 "라벨 / 값" 표(dl.kv)로 통일한다.
+const dsub = (title, ...kids) => el('div', { class: 'dsub' }, el('h4', {}, title), ...kids);
+const kvr = (...pairs) => el('dl', { class: 'kv' }, pairs.filter(Boolean).flatMap(([k, v]) => v ? [el('dt', {}, k), el('dd', {}, v)] : []));
+// 별도 제출물 현황: 어떤 형태로 냈는지(압축·단일 파일·링크)와 구성을 한곳에 모은다.
+function sepSummary(d) {
+  const forms = [];
+  if (d.sep) forms.push('압축(zip) · 파일 ' + d.sep.files + '개 · ' + d.sep.mb + 'MB');
+  else if (SEPX[d.id]) forms.push('단일 파일(압축 아님)');
+  if (LINKS[d.id]) forms.push('링크 제출');
+  if (!forms.length) return null;
+  const s = d.sep;
+  return dsub('제출 현황', kvr(['제출 형태', forms.join(' + ')], s ? ['용도 분류', s.domain] : null, s ? ['구성', s.kind] : null, s ? ['실행 방식', s.run] : null,
+    s && s.pkgs && s.pkgs.length ? ['외부 패키지', s.pkgs.join(', ')] : null, s ? ['주요 확장자', Object.entries(s.ext).map(([e, n]) => e + ' ' + n).join(', ')] : null));
+}
 // 별도자료 실행 점검: 파일을 열고(HTML은 브라우저에서 입력·클릭) 확인한 내용. 점수·확인 필요 표시는 관리자에게만 내려옴.
-function sepxBox(d) {
-  const x = SEPX[d.id]; if (!x) return null;
-  const kv = (k, v) => v ? [el('dt', {}, k), el('dd', {}, v)] : [];
+function sepxBoxes(d) {
+  const x = SEPX[d.id]; if (!x) return [];
   const adm = S.role === 'admin';
   const gr = (lab, g, sc) => g ? el('span', { class: 'tag ' + (g === '상' ? 'ok' : 'g'), title: sc + '점' }, lab + ' ' + g + ' (' + sc + ')') : null;
-  return el('div', { class: 'sepbox' }, el('h3', {}, '별도자료가 무엇인지 · 실제로 열어 확인한 내용'),
-    el('p', { class: 'about' }, x.about),
-    el('dl', { class: 'kv' }, kv('확인한 것', x.check), kv('한계·주의', x.limit), kv('구성', x.kind)),
-    adm ? el('div', {}, el('div', { class: 'tags' }, gr('연계성', x.gl, x.link), gr('완성도', x.gc, x.comp), gr('사용성', x.gu, x.use)),
-      x.flags && x.flags.length ? el('div', {}, el('div', { class: 'sep-h' }, '확인 필요'), x.flags.map(f => el('div', { class: 'cmd' }, '[' + f.t + '] ' + f.m))) : null,
-      el('dl', { class: 'kv' }, kv('본문 부록 기재', x.decl), kv('연계성 근거', x.lb), kv('완성도 근거', x.cb), kv('사용성 근거', x.ub), kv('보강 의견', x.rec))) : null,
-    el('p', { class: 'hint' }, 'HTML은 외부 네트워크를 막은 브라우저에서 열어 입력칸·버튼을 눌러 보았고, 코드·APK는 실행하지 않았습니다. 점수는 AI 점검 보조값이며 평가 점수가 아닙니다.'));
+  const out = [dsub('설명 · 실제로 열어 확인한 내용', el('p', { class: 'about' }, x.about), kvr(['확인한 것', x.check], ['한계·주의', x.limit], ['구성', x.kind]))];
+  if (adm) out.push(dsub('AI 점검 결과 (관리자 전용)',
+    el('div', { class: 'tags' }, gr('연계성', x.gl, x.link), gr('완성도', x.gc, x.comp), gr('사용성', x.gu, x.use)),
+    x.flags && x.flags.length ? el('div', {}, el('div', { class: 'sep-h' }, '확인 필요'), x.flags.map(f => el('div', { class: 'cmd' }, '[' + f.t + '] ' + f.m))) : null,
+    kvr(['본문 부록 기재', x.decl], ['연계성 근거', x.lb], ['완성도 근거', x.cb], ['사용성 근거', x.ub], ['보강 의견', x.rec]),
+    el('p', { class: 'hint' }, 'HTML은 외부 네트워크를 막은 브라우저에서 열어 입력칸·버튼을 눌러 보았고, 코드·APK는 실행하지 않았습니다. 점수는 AI 점검 보조값이며 평가 점수가 아닙니다.')));
+  return out;
 }
 // 별도자료 상세: 비공개 레포의 sep_info.json(파일 구성·README를 읽어 만든 정적 설명, 코드는 실행하지 않음)
 let SEPINFO = null, sepPromise = null;
@@ -576,11 +591,11 @@ function loadSepInfo() {
 }
 const fmtSize = n => n >= 1048576 ? (n / 1048576).toFixed(1) + 'MB' : n >= 1024 ? Math.round(n / 1024) + 'KB' : n + 'B';
 function sepBox(d) {
-  const box = el('div', { class: 'sepbox' }, el('h3', {}, '별도자료 상세'), el('p', { class: 'muted' }, '별도자료 설명을 불러오는 중…'));
+  const box = el('div', { class: 'dsub' }, el('h4', {}, '파일 구성 상세'), el('p', { class: 'muted' }, '별도자료 설명을 불러오는 중…'));
   loadSepInfo().then(all => {
-    const s = all[d.id]; if (!s) { box.replaceChildren(el('h3', {}, '별도자료 상세'), el('p', { class: 'muted' }, '이 사례의 별도자료 설명이 없습니다.')); return; }
+    const s = all[d.id]; if (!s) { box.replaceChildren(el('h4', {}, '파일 구성 상세'), el('p', { class: 'muted' }, '이 사례의 별도자료 설명이 없습니다.')); return; }
     const kv = (k, v) => v ? [el('dt', {}, k), el('dd', {}, v)] : [];
-    box.replaceChildren(...[el('h3', {}, '별도자료 상세'),
+    box.replaceChildren(...[el('h4', {}, '파일 구성 상세'),
       el('p', { class: 'about' }, s.about),
       el('dl', { class: 'kv' }, kv('압축 파일', s.nfiles + '개 · ' + (d.sep ? d.sep.mb + 'MB' : '') + (s.hidden ? ' (캐시·git 등 부수 파일 ' + s.hidden + '개 포함)' : '')),
         kv('추정 용도 근거', s.basis), kv('구성', s.kind), kv('실행 방식', s.run), kv('외부 패키지', s.pkgs.join(', ')),
@@ -591,7 +606,7 @@ function sepBox(d) {
       el('div', { class: 'scroll' }, el('table', { class: 'tbl' }, el('tr', {}, el('th', {}, '파일'), el('th', { class: 'n' }, '크기'), el('th', {}, '추정 역할')),
         s.key.map(([n, z, r]) => el('tr', {}, el('td', {}, n), el('td', { class: 'n' }, fmtSize(z)), el('td', {}, r))))),
       el('p', { class: 'hint' }, '파일 이름·README·코드 식별자를 읽어 만든 정적 설명입니다. 코드는 실행하지 않았으므로 실제 동작과 다를 수 있습니다. 전체 파일은 "원본 보기"에서 확인하세요.')].filter(Boolean));
-  }).catch(e => box.replaceChildren(el('h3', {}, '별도자료 상세'), el('p', { class: 'muted' }, e.message === 'notoken' ? '원본 열람 토큰이 없어 별도자료 설명을 불러오지 못했습니다(설정 탭에서 공용 토큰을 등록하세요).' : '별도자료 설명을 불러오지 못했습니다(' + e.message + ').')));
+  }).catch(e => box.replaceChildren(el('h4', {}, '파일 구성 상세'), el('p', { class: 'muted' }, e.message === 'notoken' ? '원본 열람 토큰이 없어 별도자료 설명을 불러오지 못했습니다(설정 탭에서 공용 토큰을 등록하세요).' : '별도자료 설명을 불러오지 못했습니다(' + e.message + ').')));
   return box;
 }
 function adminEvals(d) {
