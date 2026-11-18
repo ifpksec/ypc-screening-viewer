@@ -39,7 +39,7 @@ const CL = {
 const AGE_ORDER = ['20대', '30대', '40대', '50대', '60대 이상', '연령미상'];
 const PAGE = 12;
 const S = { code: null, role: null, judge: null, settings: null };
-let DATA = [], ITEM = {}, ASSIGN = [], ADMIN = null, PUB = null, SEPX = {}, MANIP = {}; // PUB: 접근코드 없이 받는 공개 집계(통계 탭 전용)
+let DATA = [], ITEM = {}, ASSIGN = [], ADMIN = null, PUB = null, SEPX = {}, MANIP = {}, LINKS = {}; // PUB: 접근코드 없이 받는 공개 집계(통계 탭 전용)
 let view = [], page = 1, navIds = [], curIdx = -1;
 
 // ---------- API ----------
@@ -104,6 +104,7 @@ async function unlock(code, opts = {}) {
   }
   ITEM = Object.fromEntries(DATA.map(d => [d.id, d]));
   try { MANIP = (await call('ypc_manip')) || {}; } catch { MANIP = {}; } // 평가 유도·단정 표현 점검(관리자 전용)
+  try { LINKS = (await call('ypc_links')) || {}; } catch { LINKS = {}; } // 링크로 제출한 별도 제출물 안내
   try { SEPX = (await call('ypc_sepx')) || {}; } catch { SEPX = {}; } // 별도자료 실행 점검(관리자: 전체·점수 포함 / 심사위원: 배정 사례의 설명만)
   if (S.role === 'admin') ADMIN = await call('ypc_admin_state');
   try { const tk = await call('ypc_orig_token'); if (tk) store.set('ypc_gh', tk); } catch {} // 관리자가 등록한 공용 읽기 토큰 자동 적용
@@ -521,6 +522,7 @@ function showDetail(id) {
     el('div', { class: 'openrow' }, el('button', { class: 'btn primary', onclick: () => openOriginal(d) }, '원본 보기'),
       el('button', { class: 'btn', onclick: () => navigator.clipboard && navigator.clipboard.writeText(d.id) }, '번호 복사')),
     manipBox(d),
+    linksBox(d),
     sepxBox(d),  // 압축이 아닌 단일 파일(html·엑셀·pptx 등)로 낸 별도자료도 점검 결과를 보여 준다
     d.sep ? sepBox(d) : null,
     el('p', { class: 'hint' }, '원본 보기: 비공개 레포(' + CFG.ORIG_REPO + ')에서 읽기 전용 토큰으로 직접 불러옵니다.'));
@@ -528,6 +530,18 @@ function showDetail(id) {
   $('#prev').disabled = curIdx <= 0; $('#next').disabled = curIdx < 0 || curIdx >= navIds.length - 1;
   $('#navpos').textContent = navIds.length > 1 ? (curIdx + 1) + ' / ' + navIds.length : '';
   window.scrollTo(0, 0);
+}
+// 링크로 제출한 별도 제출물: 참가자가 적은 원문과 운영팀 확인 메모. 주소는 http(s)만 새 탭 링크로 연다.
+function linksBox(d) {
+  const x = LINKS[d.id]; if (!x) return null;
+  const kv = (k, v) => v ? [el('dt', {}, k), el('dd', {}, v)] : [];
+  const lin = (txt) => { const out = []; let i = 0; const re = /https?:\/\/[^\s)>\]"',，]+/g; let m;
+    while ((m = re.exec(txt))) { if (m.index > i) out.push(txt.slice(i, m.index)); const u = m[0].replace(/[.;]+$/, ''); out.push(el('a', { href: u, target: '_blank', rel: 'noopener noreferrer' }, u)); i = m.index + u.length; re.lastIndex = i; }
+    if (i < txt.length) out.push(txt.slice(i)); return out; };
+  return el('div', { class: 'sepbox' }, el('h3', {}, '별도 제출물 링크'),
+    x.t ? el('div', { class: 'cmd' }, ...lin(x.t)) : null,
+    el('dl', { class: 'kv' }, kv('여는 방법', x.h), kv('운영팀 확인', (x.n || []).join(' / '))),
+    el('p', { class: 'hint' }, '참가자가 신청서 링크 칸에 적은 원문입니다. 외부 사이트이므로 입력칸에 개인정보를 넣지 마세요. 무료 호스팅 앱은 처음 열 때 깨어나는 데 시간이 걸릴 수 있습니다.'));
 }
 // 본문 평가 유도·단정 표현 점검(관리자 전용): 정규식 후보를 읽고 가려낸 문장. 위반 판정이 아니라 확인용 표시.
 function manipBox(d) {
