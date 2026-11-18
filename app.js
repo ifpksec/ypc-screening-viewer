@@ -302,12 +302,12 @@ function renderStats() {
   const XS = PUB.sep;
   if (XS) {
     const Z = XS.zips, Q = el('div', { class: 'panels' });
-    Q.append(panel('코드를 읽어 본 추정 용도', bars(XS.domain, Z, null)));
-    Q.append(panel('포함된 기능·특징 (중복 가능)', bars(XS.flags, Z, null)));
-    Q.append(panel('실행 방식(파일 구성 기준)', bars(XS.run, Z, null)));
-    Q.append(panel('파일 구성', bars(XS.kind, Z, null)));
+    Q.append(panel('코드를 읽어 본 추정 용도', bars(XS.domain, Z, adm ? l => jump('sepdom', l) : null)));
+    Q.append(panel('포함된 기능·특징 (중복 가능)', bars(XS.flags, Z, adm ? l => jump('sepfl', l) : null)));
+    Q.append(panel('실행 방식(파일 구성 기준)', bars(XS.run, Z, adm ? l => jump('seprun', l) : null)));
+    Q.append(panel('파일 구성', bars(XS.kind, Z, adm ? l => jump('sepkind', l) : null)));
     Q.append(panel('압축 안 파일 수', bars(XS.size, Z, adm ? l => jump('sepsize', l) : null)));
-    Q.append(panel('필요한 외부 패키지(Python import, 중복 가능)', bars(XS.pkgs, Z, null)));
+    Q.append(panel('필요한 외부 패키지(Python import, 중복 가능)', bars(XS.pkgs, Z, adm ? l => jump('seppkg', l) : null)));
     Q.append(panel('군집별 별도자료 첨부 건수', bars(PUB.clusterSep, Z, adm ? l => jumpMany({ cluster: [l], sep: ['있음'] }) : null)));
     v.append(el('div', { class: 'sect' }, el('h3', {}, '별도자료(_별도.zip) 통계 — 심사 대상 ' + N + '건 중 ' + Z + '건'),
       el('p', { class: 'sub' }, XS.note + ' 이 섹션의 막대는 별도자료가 있는 ' + Z + '건 기준입니다(누락 ' + X + '건 제외).'), el('div', { class: 'kpis' }, kpi(Z, '별도자료 첨부 사례', adm ? () => jump('sep', '있음') : null), kpi(XS.files.toLocaleString(), '압축 안 전체 파일'), kpi(XS.mb + 'MB', '압축 용량 합계'), kpi(pct(Z, N), '심사 대상 대비 첨부율', adm ? () => jump('sep', '있음') : null)), Q));
@@ -391,6 +391,11 @@ const CGROUPS = [
   { key: 'tech', label: '기술', get: d => d.tech.length ? d.tech : ['해당 없음'] },
   { key: 'vis', label: '도식·표 비중', get: d => visBands(d), order: VIS_ORDER },
   { key: 'sep', label: '별도자료', get: d => [d.sep ? '있음' : '없음'] },
+  { key: 'sepdom', label: '별도 추정 용도', get: d => d.sep && d.sep.domain ? [d.sep.domain] : [] },
+  { key: 'sepfl', label: '별도 포함 기능', get: d => d.sep && d.sep.flags ? d.sep.flags : [] },
+  { key: 'seprun', label: '별도 실행 방식', get: d => d.sep && d.sep.run ? [d.sep.run] : [] },
+  { key: 'sepkind', label: '별도 파일 구성', get: d => d.sep && d.sep.kind ? [d.sep.kind] : [] },
+  { key: 'seppkg', label: '별도 외부 패키지', get: d => d.sep && d.sep.pkgs ? d.sep.pkgs : [] },
   { key: 'sepsize', label: '별도자료 파일 수', get: d => d.sep ? [sepSizeLabel(d.sep.files)] : [], order: SEP_SIZES },
   { key: 'chars', label: '본문 분량', get: d => [charBinLabel(d.chars)], order: CHAR_BINS },
   { key: 'gap', label: '미상·결측', get: d => gapLabels(d), order: GAP_LABELS },
