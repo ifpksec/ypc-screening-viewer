@@ -566,10 +566,50 @@ function linksBox(d) {
     kvr(['여는 방법', x.h], ['운영팀 확인', (x.n || []).join(' / ')]),
     el('p', { class: 'hint' }, '참가자가 신청서 링크 칸에 적은 원문입니다. 외부 사이트이므로 입력칸에 개인정보를 넣지 마세요. 무료 호스팅 앱은 처음 열 때 깨어나는 데 시간이 걸릴 수 있습니다.'));
 }
+// 실행 화면(캡처): 별도 제출물을 실제로 열어 찍은 화면. 비공개 저장소(shots/)에서 읽기 전용 토큰으로 불러온다. 페이지(탭)마다 1장.
+let SHOTIDX = null, shotIdxP = null; const SHOTBLOB = new Map();
+function loadShotIndex() {
+  if (SHOTIDX) return Promise.resolve(SHOTIDX);
+  if (!store.get('ypc_gh')) return Promise.reject(new Error('notoken'));
+  return shotIdxP || (shotIdxP = fetch(`https://api.github.com/repos/${CFG.ORIG_REPO}/contents/shots/index.json`, { headers: ghHeaders(true) })
+    .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }).then(j => (SHOTIDX = j)).catch(e => { shotIdxP = null; throw e; }));
+}
+function shotUrl(id, f) {
+  const key = id + '/' + f; if (SHOTBLOB.has(key)) return SHOTBLOB.get(key);
+  const p = fetch(`https://api.github.com/repos/${CFG.ORIG_REPO}/contents/${apiPath('shots/' + id + '/' + f)}`, { headers: ghHeaders(true) })
+    .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.arrayBuffer(); }).then(b => URL.createObjectURL(new Blob([b], { type: 'image/webp' })))
+    .catch(e => { SHOTBLOB.delete(key); throw e; });
+  SHOTBLOB.set(key, p); return p;
+}
+function openShot(id, list, i) {
+  const box = el('div', { class: 'shot-lb', onclick: e => { if (e.target === box || e.target.classList.contains('shot-x')) box.remove(); } });
+  const img = el('img', { alt: '' }), cap = el('div', { class: 'shot-cap' }); const show = n => { i = (n + list.length) % list.length; const x = list[i]; cap.textContent = (i + 1) + ' / ' + list.length + ' · ' + shotLabel(x); img.removeAttribute('src'); shotUrl(id, x.f).then(u => { img.src = u; }).catch(() => { cap.textContent += ' (불러오지 못함)'; }); };
+  box.append(el('button', { class: 'shot-x btn' }, '닫기 ✕'), el('div', { class: 'shot-nav' }, el('button', { class: 'btn', onclick: () => show(i - 1) }, '← 이전'), cap, el('button', { class: 'btn', onclick: () => show(i + 1) }, '다음 →')), el('div', { class: 'shot-view' }, img));
+  const key = e => { if (e.key === 'Escape') { box.remove(); document.removeEventListener('keydown', key); } else if (e.key === 'ArrowLeft') show(i - 1); else if (e.key === 'ArrowRight') show(i + 1); }; document.addEventListener('keydown', key);
+  document.body.append(box); show(i);
+}
+const shotLabel = x => (x.k === 'link' ? '링크 ' : '파일 ') + x.t + (x.n > 1 || x.k ? ' · ' + x.n + '쪽' : '') + (x.login ? ' · 로그인 후' : '');
+function shotsBox(d, wrap) {
+  const box = el('div', { class: 'dsub', hidden: true }); 
+  loadShotIndex().then(idx => {
+    const list = idx[d.id]; if (!list || !list.length) return;
+    const grid = el('div', { class: 'shot-grid' });
+    const io = 'IntersectionObserver' in window ? new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting) { io.unobserve(e.target); e.target._load(); } }), { rootMargin: '200px' }) : null;
+    list.forEach((x, i) => { const img = el('img', { alt: '' }); const fig = el('figure', { class: 'shot-fig', onclick: () => openShot(d.id, list, i) }, el('div', { class: 'shot-th' }, img), el('figcaption', {}, shotLabel(x)));
+      fig._load = () => shotUrl(d.id, x.f).then(u => { img.src = u; }).catch(() => { fig.classList.add('shot-err'); }); grid.append(fig); if (io) io.observe(fig); else fig._load(); });
+    box.replaceChildren(el('h4', {}, '실행 화면 (' + list.length + '장)'), grid, el('p', { class: 'hint' }, '제출된 HTML 파일을 외부 네트워크를 막은 브라우저에서 열거나, 제출된 링크를 열어 찍은 화면입니다(페이지·탭마다 1장). 화면을 누르면 크게 볼 수 있습니다. 로그인이 필요한 링크는 로그인 화면이거나 사용자가 직접 로그인한 뒤 찍은 화면이고, 보안 확인(봇 차단)으로 막힌 링크는 캡처가 없습니다.'));
+    box.hidden = false; if (wrap) wrap.hidden = false;
+  }).catch(e => { if (e.message === 'notoken') { box.hidden = false; box.replaceChildren(el('h4', {}, '실행 화면'), el('p', { class: 'muted' }, '원본 열람 토큰이 없어 실행 화면을 불러오지 못했습니다(설정 탭에서 공용 토큰 등록).')); } });
+  return box;
+}
 // 별도 제출물 섹션: 제출 현황 → 링크 → 설명·확인 → AI 점검(관리자) → 파일 구성 상세 순서로 고정
 function sepSection(d) {
-  const subs = [sepSummary(d), linksBox(d), ...sepxBoxes(d), d.sep ? sepBox(d) : null].filter(Boolean);
-  return subs.length ? el('div', { class: 'sepbox' }, el('h3', {}, '별도 제출물'), ...subs) : null;
+  const others = [sepSummary(d), linksBox(d), ...sepxBoxes(d), d.sep ? sepBox(d) : null].filter(Boolean);
+  const wrap = el('div', { class: 'sepbox', hidden: !others.length });
+  const shots = shotsBox(d, wrap);   // 실행 화면은 인덱스를 읽은 뒤 해당 사례에 있을 때만 나타남
+  const at = others.findIndex(x => x.querySelector && x.querySelector('h4') && /설명 · 실제로/.test(x.querySelector('h4').textContent));
+  const ordered = others.slice(); ordered.splice(at >= 0 ? at : ordered.length, 0, shots);
+  wrap.append(el('h3', {}, '별도 제출물'), ...ordered); return wrap;
 }
 // 본문 평가 유도·단정 표현 점검(관리자 전용): 정규식 후보를 읽고 가려낸 문장. 위반 판정이 아니라 확인용 표시.
 function manipBox(d) {
